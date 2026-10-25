@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Target scoring configuration",
+  "type": "object",
+  "required": ["target", "rings", "bullet", "trigger", "morph"],
+  "properties": {
+    "name": { "type": "string" },
+    "target": {
+      "type": "object",
+      "required": ["widthMm", "heightMm", "centerXmm", "centerYmm", "warpWidthPx", "warpHeightPx"],
+      "properties": {
+        "widthMm":  { "type": "number", "minimum": 1 },
+        "heightMm": { "type": "number", "minimum": 1 },
+        "centerXmm": { "type": "number" },
+        "centerYmm": { "type": "number" },
+        "distanceM": { "type": "number", "minimum": 0.1 },
+        "warpWidthPx":  { "type": "integer", "minimum": 64 },
+        "warpHeightPx": { "type": "integer", "minimum": 64 }
+      }
+    },
+    "markers": {
+      "type": "object",
+      "properties": {
+        "dictionary": { "type": "string" },
+        "ids": { "type": "object" },
+        "sizeMm": { "type": "number", "minimum": 1 },
+        "borderBits": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "rings": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["label", "diameterMm", "score"],
+        "properties": {
+          "label": { "type": "string" },
+          "diameterMm": { "type": "number", "minimum": 0 },
+          "score": { "type": "number" }
+        }
+      }
+    },
+    "bullet": {
+      "type": "object",
+      "properties": {
+        "caliberMm": { "type": "number", "minimum": 0 },
+        "breakTheLine": { "type": "boolean" },
+        "minHoleAreaPx": { "type": "number", "minimum": 0 },
+        "maxHoleAreaPx": { "type": "number", "minimum": 0 },
+        "maxAspectRatio": { "type": "number", "minimum": 1 }
+      }
+    },
+    "trigger": {
+      "type": "object",
+      "properties": {
+        "threshold": { "type": "number" },
+        "minThreshold": { "type": "number" },
+        "maxThreshold": { "type": "number" },
+        "shotDelayMs": { "type": "number", "minimum": 0 },
+        "cooldownMs": { "type": "number", "minimum": 0 },
+        "rmsWindow": { "type": "integer", "minimum": 16 }
+      }
+    },
+    "morph": {
+      "type": "object",
+      "properties": {
+        "blurKernel": { "type": "integer", "minimum": 1 },
+        "thresholdMethod": { "enum": ["otsu", "fixed"] },
+        "fixedThreshold": { "type": "number", "minimum": 0 },
+        "closeKernel": { "type": "integer", "minimum": 0 },
+        "diffScale": { "type": "number", "minimum": 0.1, "maximum": 1 }
+      }
+    }
+  }
+}

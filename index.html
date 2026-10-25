@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0a0e14" />
+
+  <!-- PWA / iOS standalone -->
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="TargetX" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <title>TargetX — Shot Monitor</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+  <link rel="icon" type="image/png" href="./icons/icon-192.png" />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div id="stage" class="stage">
+    <video id="video" class="video" playsinline muted autoplay></video>
+    <canvas id="overlay" class="overlay"></canvas>
+
+    <!-- Top HUD -->
+    <header class="hud hud--top">
+      <div class="hud__group">
+        <span class="brand">TARGET<span class="brand--accent">X</span></span>
+        <span id="statusChip" class="chip chip--idle">OFFLINE</span>
+      </div>
+      <div class="hud__group hud__group--right">
+        <div id="audioMeter" class="audio-meter" title="Microphone level">
+          <div id="audioMeterBar" class="audio-meter__bar"></div>
+        </div>
+        <button id="btnSettings" class="btn btn--ghost" aria-label="Settings">⚙</button>
+      </div>
+    </header>
+
+    <!-- Alignment feedback -->
+    <div id="alignHint" class="align-hint">
+      <div class="align-hint__icon">▣</div>
+      <div>Align the four corner markers inside the frame</div>
+    </div>
+
+    <!-- Bottom HUD / controls -->
+    <footer class="hud hud--bottom">
+      <div class="readout">
+        <div class="readout__item">
+          <span class="readout__label">LAST SHOT</span>
+          <span id="readLastShot" class="readout__value">—</span>
+        </div>
+        <div class="readout__item readout__item--center">
+          <span class="readout__label">GROUP SIZE</span>
+          <span id="readGroup" class="readout__value">—</span>
+          <span id="readMoa" class="readout__sub">—</span>
+        </div>
+        <div class="readout__item readout__item--right">
+          <span class="readout__label">SHOTS</span>
+          <span id="readShots" class="readout__value">0</span>
+        </div>
+      </div>
+
+      <div class="controls">
+        <button id="btnCamera" class="btn btn--primary">▶ START CAMERA</button>
+        <button id="btnLock" class="btn btn--accent" disabled>◈ LOCK TARGET</button>
+        <button id="btnTest" class="btn btn--ghost" disabled title="Simulate a shot (dry fire test)">⦿ TEST</button>
+        <button id="btnRotate" class="btn btn--ghost" disabled title="Rotate corner assignment 90°">↻</button>
+        <button id="btnClear" class="btn btn--danger" title="Clear shot history">✕</button>
+      </div>
+    </footer>
+
+    <!-- Settings drawer -->
+    <div id="drawer" class="drawer">
+      <div class="drawer__header">
+        <h2>Settings</h2>
+        <button id="btnCloseDrawer" class="btn btn--ghost">✕</button>
+      </div>
+      <div class="drawer__body">
+        <label class="field">
+          <span class="field__label">Trigger sensitivity <span id="sensVal" class="field__val">0.14</span></span>
+          <input id="sensitivity" type="range" min="0.02" max="0.90" step="0.01" value="0.14" />
+        </label>
+        <label class="field">
+          <span class="field__label">Bullet caliber (mm) <span id="caliberVal" class="field__val">4.5</span></span>
+          <input id="caliber" type="range" min="2" max="12" step="0.5" value="4.5" />
+        </label>
+        <label class="field field--check">
+          <input id="breakLine" type="checkbox" checked />
+          <span>Break-the-line scoring (bullet edge touches line = higher ring)</span>
+        </label>
+        <label class="field">
+          <span class="field__label">Detection resolution</span>
+          <select id="resolution">
+            <option value="ideal">Auto (1080p → 720p fallback)</option>
+            <option value="720">720p</option>
+            <option value="1080">1080p</option>
+            <option value="480">480p (low heat)</option>
+          </select>
+        </label>
+        <div id="cvStatus" class="cv-status">OpenCV.js: loading…</div>
+        <div id="debugInfo" class="debug-info"></div>
+      </div>
+    </div>
+    <div id="drawerScrim" class="drawer-scrim"></div>
+  </div>
+
+  <!-- OpenCV.js (WebAssembly) is loaded lazily from app.js to keep first paint fast -->
+  <script src="./app.js" defer></script>
+</body>
+</html>
