@@ -111,7 +111,9 @@
     </div>
   </div>
 
-  <!-- OpenCV.js (WebAssembly) is loaded lazily from app.js to keep first paint fast -->
-  <script src="./app.js" defer></script>
+  <!-- OpenCV.js (WebAssembly) is loaded by app.js inside a Web Worker.
+       The ?v=4 query defeats stale service-worker caches on already-installed
+       devices so they fetch the latest build on the next reload. -->
+  <script src="./app.js?v=4" defer></script>
 </body>
 </html>

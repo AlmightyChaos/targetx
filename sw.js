@@ -1,5 +1,5 @@
 /* TargetX service worker — offline-first cache for PWA installability. */
-const CACHE = "targetx-v3";
+const CACHE = "targetx-v4";
 const ASSETS = [
   "./",
   "./index.html",
@@ -34,29 +34,18 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return; // let CDN (OpenCV.js) hit the network
 
-  // Network-first for navigations; cache-first for static assets.
-  if (request.mode === "navigate") {
-    event.respondWith(
-      fetch(request)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((cache) => cache.put(request, copy));
-          return res;
-        })
-        .catch(() => caches.match("./index.html"))
-    );
-    return;
-  }
-
+  // Network-first for everything same-origin. This app is under active
+  // development; serving the freshest build on reload matters more than
+  // offline support, and it prevents stale cached JS from freezing devices.
   event.respondWith(
-    caches.match(request).then(
-      (cached) =>
-        cached ||
-        fetch(request).then((res) => {
+    fetch(request)
+      .then((res) => {
+        if (res && (res.status === 200 || res.type === "opaque")) {
           const copy = res.clone();
           caches.open(CACHE).then((cache) => cache.put(request, copy));
-          return res;
-        })
-    )
+        }
+        return res;
+      })
+      .catch(() => caches.match(request))
   );
 });
