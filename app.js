@@ -47,6 +47,8 @@
   const caliberVal = $("caliberVal");
   const breakLine = $("breakLine");
   const resolution = $("resolution");
+  const loading = $("loading");
+  const loadingText = $("loadingText");
 
   /* ------------------------------ state ---------------------------------- */
   const state = {
@@ -105,6 +107,12 @@
 
   function setDebug(text) {
     debugInfo.textContent = text;
+  }
+
+  function setLoading(show, text) {
+    if (!loading) return;
+    loading.classList.toggle("is-visible", !!show);
+    if (text) loadingText.textContent = text;
   }
 
   function sleep(ms) {
@@ -187,6 +195,7 @@
 
       function onLoad() {
         cvStatus.textContent = "OpenCV.js: initializing…";
+        setLoading(true, "Compiling OpenCV.js…");
         let done = false;
         const ready = () => {
           if (done) return;
@@ -209,6 +218,7 @@
       }
       function onErr() {
         cvStatus.textContent = "OpenCV.js: failed to load";
+        setLoading(false);
         reject(new Error("OpenCV.js load failed"));
       }
     });
@@ -235,6 +245,12 @@
   async function startCamera() {
     setStatus("STARTING…", "ready");
     try {
+      // Show the loading overlay and yield a paint frame BEFORE injecting
+      // OpenCV.js. Its ~10 MB WASM compile blocks the main thread for several
+      // seconds, so without this the page would look frozen.
+      setLoading(true, "Loading OpenCV.js…");
+      await sleep(60);
+
       // Load OpenCV in parallel with requesting the camera.
       const cvPromise = loadOpenCV();
 
@@ -266,10 +282,12 @@
       startAudio();
 
       await cvPromise;
+      setLoading(false);
       setStatus("SEARCHING MARKERS…", "ready");
       startMarkerLoop();
     } catch (e) {
       log("camera error", e);
+      setLoading(false);
       setStatus("CAMERA ERROR", "err");
       setDebug(String(e && e.message ? e.message : e));
     }
@@ -1055,11 +1073,9 @@
     await loadConfig();
     applyConfigToUI();
     sizeOverlay();
-    // Preload OpenCV in the background so first lock is fast.
-    loadOpenCV().catch((e) => {
-      log("OpenCV preload failed", e);
-      cvStatus.textContent = "OpenCV.js: load failed — check connection";
-    });
+    // NOTE: do NOT preload OpenCV.js here. It is a ~10 MB WASM build whose
+    // compile blocks the main thread for seconds — preloading would freeze the
+    // page the moment it opens. It is loaded lazily in startCamera().
     if ("serviceWorker" in navigator) {
       try { await navigator.serviceWorker.register("./sw.js"); } catch (e) { log("sw register failed", e); }
     }

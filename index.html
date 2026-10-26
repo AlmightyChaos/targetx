@@ -98,11 +98,17 @@
             <option value="480">480p (low heat)</option>
           </select>
         </label>
-        <div id="cvStatus" class="cv-status">OpenCV.js: loading…</div>
+        <div id="cvStatus" class="cv-status">OpenCV.js: idle (loads on camera start)</div>
         <div id="debugInfo" class="debug-info"></div>
       </div>
     </div>
     <div id="drawerScrim" class="drawer-scrim"></div>
+
+    <!-- Loading overlay (OpenCV.js compile can block the main thread) -->
+    <div id="loading" class="loading">
+      <div class="loading__spinner"></div>
+      <div id="loadingText" class="loading__text">Loading OpenCV.js…</div>
+    </div>
   </div>
 
   <!-- OpenCV.js (WebAssembly) is loaded lazily from app.js to keep first paint fast -->
