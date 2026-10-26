@@ -64,7 +64,7 @@
       <div class="controls">
         <button id="btnCamera" class="btn btn--primary">▶ START CAMERA</button>
         <button id="btnLock" class="btn btn--accent" disabled>◈ LOCK TARGET</button>
-        <button id="btnTest" class="btn btn--ghost" disabled title="Simulate a shot (dry fire test)">⦿ TEST</button>
+        <button id="btnTest" class="btn btn--ghost" disabled title="Inject a fake bullet hole and score it (home test)">🎯 SIMULATE</button>
         <button id="btnRotate" class="btn btn--ghost" disabled title="Rotate corner assignment 90°">↻</button>
         <button id="btnClear" class="btn btn--danger" title="Clear shot history">✕</button>
       </div>
@@ -112,8 +112,8 @@
   </div>
 
   <!-- OpenCV.js (WebAssembly) is loaded by app.js inside a Web Worker.
-       The ?v=4 query defeats stale service-worker caches on already-installed
-       devices so they fetch the latest build on the next reload. -->
-  <script src="./app.js?v=4" defer></script>
+       The ?v=N query defeats stale service-worker and HTTP caches on
+       already-installed devices so they fetch the latest build on reload. -->
+  <script src="./app.js?v=5" defer></script>
 </body>
 </html>

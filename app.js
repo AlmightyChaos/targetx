@@ -581,7 +581,7 @@
   }
 
   /* --------------------------- shot pipeline ----------------------------- */
-  async function captureShot() {
+  async function captureShot(simulate) {
     if (state.processing) return;
     if (!worker || !state.stream) return;
     if (!state.locked || !state.H) {
@@ -591,7 +591,7 @@
     }
     state.processing = true;
     try {
-      await sleep(state.cfg.trigger.shotDelayMs);
+      if (!simulate) await sleep(state.cfg.trigger.shotDelayMs);
 
       const frame = readFrameBuf(); // full res (matches H coordinate space)
       if (!frame) return;
@@ -608,6 +608,7 @@
           morph: state.cfg.morph,
           bullet: state.cfg.bullet,
           hasBaseline: state.hasBaseline,
+          simulate: simulate || undefined,
         }, [frame.buf]);
       } catch (e) {
         log("capture error", e);
@@ -634,6 +635,31 @@
     } finally {
       state.processing = false;
     }
+  }
+
+  // Synthetic shot: inject a fake bullet hole at a random position inside the
+  // target so the full diff→detect→score pipeline can be tested at home with
+  // no paper damage and no gunshot sound.
+  function simulateShot() {
+    if (!worker || !state.stream) return;
+    if (!state.locked || !state.H) {
+      setDebug("Lock the four markers before simulating.");
+      beep(300, 0.12, "square", 0.06);
+      return;
+    }
+    const t = state.cfg.target;
+    const pxPerMm = t.warpWidthPx / t.widthMm;
+    const cx = t.warpWidthPx * (t.centerXmm / t.widthMm);
+    const cy = t.warpHeightPx * (t.centerYmm / t.heightMm);
+
+    // Random radius inside the scoring area (~5..65 mm from center).
+    const ang = Math.random() * Math.PI * 2;
+    const radMm = 5 + Math.random() * 60;
+    const x = cx + Math.cos(ang) * radMm * pxPerMm;
+    const y = cy + Math.sin(ang) * radMm * pxPerMm;
+    const r = Math.max(6, (state.cfg.bullet.caliberMm / 2) * pxPerMm);
+
+    captureShot({ x, y, r });
   }
 
   /* --------------------------- scoring ----------------------------------- */
@@ -775,7 +801,7 @@
     }
   });
 
-  btnTest.addEventListener("click", () => onTrigger());
+  btnTest.addEventListener("click", () => simulateShot());
 
   btnRotate.addEventListener("click", () => {
     state.rotationOffset = (state.rotationOffset + 1) % 4;

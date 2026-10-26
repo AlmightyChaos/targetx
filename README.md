@@ -89,6 +89,17 @@ On iPhone: open the URL in Safari → **Share → Add to Home Screen** → it
 launches in standalone fullscreen with `manifest.json` + service worker
 offline caching.
 
+## Testing at home (no paper, no gunshot)
+
+1. Print/display the four-corner target and lock it (green box).
+2. Tap **🎯 SIMULATE**. The app injects a synthetic bullet hole at a random
+   position and runs it through the real `absdiff → threshold → contour →
+   score` pipeline, so you can verify detection + ring scoring + group/MOA
+   without punching a hole.
+3. To test the **audio trigger** path, clap or snap your fingers near the
+   microphone (lower the ⚙ sensitivity slider if needed); the level meter in
+   the top-right should spike and trigger a capture.
+
 ## Notes & limitations
 
 - OpenCV.js (~8 MB WASM) loads from the OpenCV CDN; the first load needs a

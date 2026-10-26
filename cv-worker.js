@@ -289,6 +289,15 @@ function handleCapture(msg) {
     src.delete();
     H.delete();
 
+    // Synthetic shot: draw a dark "bullet hole" onto the warped frame so the
+    // normal absdiff pipeline detects it as a fresh hole (home test mode).
+    if (msg.simulate && Number.isFinite(msg.simulate.x)) {
+      const sim = msg.simulate;
+      cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round(sim.r || 10), new cv.Scalar(0, 0, 0, 255), -1, cv.LINE_AA);
+      // faint torn-paper ring around the hole
+      cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round((sim.r || 10) * 1.6), new cv.Scalar(90, 90, 90, 255), 2, cv.LINE_AA);
+    }
+
     const gray = new cv.Mat();
     cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
     warped.delete();
