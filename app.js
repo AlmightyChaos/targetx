@@ -42,6 +42,8 @@
   const caliberVal = $("caliberVal");
   const breakLine = $("breakLine");
   const resolution = $("resolution");
+  const recentShots = $("recentShots");
+  const recentVal = $("recentVal");
   const loading = $("loading");
   const loadingText = $("loadingText");
 
@@ -65,6 +67,7 @@
     lastMarkers: [],     // markers in full-res video coords
     overlayHoles: [],
     lockCenters: null,   // last assigned marker centers (for drift reset)
+    highlightCount: 10,  // latest N shots highlighted + used for grouping
   };
 
   const DEFAULT_CFG = {
@@ -115,6 +118,29 @@
       osc.start();
       osc.stop(state.audioCtx.currentTime + dur);
     } catch (_) {}
+  }
+
+  /* --------------------------- voice feedback ---------------------------- */
+  const NUM_WORDS = { 0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten" };
+
+  function speak(text) {
+    try {
+      if (!("speechSynthesis" in window)) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = "en-US";
+      u.rate = 1.0;
+      u.pitch = 1.0;
+      window.speechSynthesis.speak(u);
+    } catch (_) { /* noop */ }
+  }
+
+  function speakScore(shot) {
+    let text;
+    if (shot.ring === "M" || shot.score === 0) text = "miss";
+    else if (shot.ring === "X" || !Number.isInteger(shot.score)) text = "inner ten";
+    else text = NUM_WORDS[shot.score] || String(shot.score);
+    speak(text);
   }
 
   /* --------------------------- config ------------------------------------ */
@@ -674,34 +700,42 @@
     const dist = Math.hypot(mmX - t.centerXmm, mmY - t.centerYmm);
     let eff = dist;
     if (b.breakTheLine) eff = Math.max(0, dist - b.caliberMm / 2);
-    let ring = cfg.rings[cfg.rings.length - 1];
-    let score = ring.score;
+    // Miss by default; match the innermost ring whose radius covers the shot.
+    let ring = { label: "M", score: 0 };
     for (const r of cfg.rings) {
-      if (eff <= r.diameterMm / 2) { ring = r; score = r.score; break; }
+      if (eff <= r.diameterMm / 2) { ring = r; break; }
     }
-    return { xPx: hole.xPx, yPx: hole.yPx, mmX, mmY, distMm: dist, ring: ring.label, score };
+    return { xPx: hole.xPx, yPx: hole.yPx, mmX, mmY, distMm: dist, ring: ring.label, score: ring.score };
   }
 
   function registerShot(shot) {
     state.shots.push(shot);
     readShots.textContent = String(state.shots.length);
-    readLastShot.textContent = shot.ring + " · " + (Number.isInteger(shot.score) ? shot.score : shot.score.toFixed(1));
+    readLastShot.textContent = shot.ring === "M" ? "MISS" : (shot.ring + " · " + (Number.isInteger(shot.score) ? shot.score : shot.score.toFixed(1)));
     readLastShot.classList.add("is-hit");
-    if (state.shots.length >= 2) {
-      const spread = groupSpreadMm();
+    updateGrouping();
+    stage.classList.remove("is-flash");
+    void stage.offsetWidth;
+    stage.classList.add("is-flash");
+    speakScore(shot);
+  }
+
+  // Group size / MOA over the latest N shots (a magazine), not the whole
+  // session, matching how shooters review grouping per string.
+  function updateGrouping() {
+    const recent = state.shots.slice(-state.highlightCount);
+    if (recent.length >= 2) {
+      const spread = groupSpreadMm(recent);
       readGroup.textContent = spread.toFixed(1) + " mm";
       readMoa.textContent = "MOA " + groupSizeToMoa(spread, state.cfg.target.distanceM).toFixed(2);
     } else {
       readGroup.textContent = "—";
       readMoa.textContent = "—";
     }
-    stage.classList.remove("is-flash");
-    void stage.offsetWidth;
-    stage.classList.add("is-flash");
   }
 
-  function groupSpreadMm() {
-    const pts = state.shots.map((s) => [s.mmX, s.mmY]);
+  function groupSpreadMm(shots) {
+    const pts = (shots || state.shots).map((s) => [s.mmX, s.mmY]);
     let maxD = 0;
     for (let i = 0; i < pts.length; i++)
       for (let j = i + 1; j < pts.length; j++)
@@ -756,27 +790,29 @@
       overlayCtx.stroke();
     }
 
-    for (const h of state.overlayHoles) {
-      const r = Math.max(8, h.r);
-      overlayCtx.strokeStyle = "rgba(255,176,32,0.95)";
-      overlayCtx.lineWidth = 2.5;
+    // Shot markers: a small dot at the hole centroid + the ring label.
+    // The latest `highlightCount` shots are bright amber; older ones stay
+    // visible but dimmed.
+    const n = state.overlayHoles.length;
+    state.overlayHoles.forEach((h, i) => {
+      const recent = i >= n - state.highlightCount;
+      const col = recent ? "255,176,32" : "150,162,180";
+      const alpha = recent ? 0.95 : 0.45;
+
+      overlayCtx.fillStyle = `rgba(${col},${alpha})`;
       overlayCtx.beginPath();
-      overlayCtx.arc(h.x, h.y, r, 0, Math.PI * 2);
-      overlayCtx.stroke();
-      overlayCtx.lineWidth = 1.5;
-      overlayCtx.beginPath();
-      overlayCtx.moveTo(h.x - r - 5, h.y); overlayCtx.lineTo(h.x + r + 5, h.y);
-      overlayCtx.moveTo(h.x, h.y - r - 5); overlayCtx.lineTo(h.x, h.y + r + 5);
-      overlayCtx.stroke();
-      overlayCtx.fillStyle = "rgba(255,176,32,0.95)";
-      overlayCtx.font = "bold 14px monospace";
-      overlayCtx.fillText(h.ring, h.x + r + 6, h.y - r - 6);
-    }
+      overlayCtx.arc(h.x, h.y, recent ? 4.5 : 3, 0, Math.PI * 2);
+      overlayCtx.fill();
+
+      overlayCtx.fillStyle = `rgba(${col},${alpha})`;
+      overlayCtx.font = recent ? "bold 14px monospace" : "12px monospace";
+      overlayCtx.fillText(h.ring, h.x + 9, h.y - 9);
+    });
   }
 
   function drawShotPreview(shot, hole) {
     const p = mapWarpedToScreen(hole.xPx, hole.yPx);
-    state.overlayHoles.push({ x: p[0], y: p[1], r: Math.max(8, hole.wPx), ring: shot.ring });
+    state.overlayHoles.push({ x: p[0], y: p[1], ring: shot.ring });
     drawMarkers();
   }
 
@@ -834,6 +870,13 @@
   });
   breakLine.addEventListener("change", () => {
     if (state.cfg) state.cfg.bullet.breakTheLine = breakLine.checked;
+  });
+
+  recentShots.addEventListener("input", () => {
+    state.highlightCount = Math.max(1, parseInt(recentShots.value, 10) || 1);
+    recentVal.textContent = String(state.highlightCount);
+    updateGrouping();
+    drawMarkers();
   });
 
   /* --------------------------- boot -------------------------------------- */

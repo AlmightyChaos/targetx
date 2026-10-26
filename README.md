@@ -100,6 +100,12 @@ offline caching.
    microphone (lower the ⚙ sensitivity slider if needed); the level meter in
    the top-right should spike and trigger a capture.
 
+On each detected shot the app speaks the score in English (e.g. "ten",
+"nine", "inner ten", "miss"). The latest N shots are shown bright while
+older shots stay dimmed; N defaults to 10 and is adjustable in ⚙ Settings
+("Highlight recent shots"), which also scopes the group-size/MOA readout to
+the current string.
+
 ## Notes & limitations
 
 - OpenCV.js (~8 MB WASM) loads from the OpenCV CDN; the first load needs a

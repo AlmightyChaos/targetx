@@ -98,6 +98,10 @@
             <option value="480">480p (low heat)</option>
           </select>
         </label>
+        <label class="field">
+          <span class="field__label">Highlight recent shots <span id="recentVal" class="field__val">10</span></span>
+          <input id="recentShots" type="range" min="1" max="60" step="1" value="10" />
+        </label>
         <div id="cvStatus" class="cv-status">OpenCV.js: idle (loads on camera start)</div>
         <div id="debugInfo" class="debug-info"></div>
       </div>
@@ -114,6 +118,6 @@
   <!-- OpenCV.js (WebAssembly) is loaded by app.js inside a Web Worker.
        The ?v=N query defeats stale service-worker and HTTP caches on
        already-installed devices so they fetch the latest build on reload. -->
-  <script src="./app.js?v=6" defer></script>
+  <script src="./app.js?v=7" defer></script>
 </body>
 </html>
