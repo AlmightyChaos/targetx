@@ -1,10 +1,11 @@
 /* TargetX service worker — offline-first cache for PWA installability. */
-const CACHE = "targetx-v2";
+const CACHE = "targetx-v3";
 const ASSETS = [
   "./",
   "./index.html",
   "./style.css",
   "./app.js",
+  "./cv-worker.js",
   "./manifest.json",
   "./target_config.json",
   "./icons/icon-192.png",
