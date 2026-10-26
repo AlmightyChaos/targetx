@@ -49,6 +49,7 @@
     "thresholdMethod": "otsu",
     "fixedThreshold": 28,
     "closeKernel": 3,
-    "diffScale": 0.6
+    "diffScale": 0.6,
+    "darknessMax": 120
   }
 }

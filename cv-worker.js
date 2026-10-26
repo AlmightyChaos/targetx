@@ -203,8 +203,12 @@ function diffAndFindHoles(curGray, morph, bullet) {
   cv.resize(baseline, b, new cv.Size(W, H), 0, 0, cv.INTER_AREA);
 
   const diff = new cv.Mat();
-  cv.absdiff(a, b, diff);
-  a.delete(); b.delete();
+  // Asymmetric diff: keep only regions where the CURRENT frame is darker
+  // than the baseline (a freshly punched hole). absdiff is symmetric and
+  // would also flag things that got brighter or disappeared, producing
+  // false "holes" from camera shake, exposure drift, or simulated holes.
+  cv.subtract(b, a, diff); // b - a > 0 where current (a) is darker
+  b.delete(); // keep `a` (resized current frame) for the darkness check
 
   const blur = new cv.Mat();
   const k = morph.blurKernel || 5;
@@ -219,6 +223,7 @@ function diffAndFindHoles(curGray, morph, bullet) {
   }
   blur.delete();
 
+  const darknessMax = morph.darknessMax ?? 120;
   if ((morph.closeKernel || 0) > 0) {
     const kc = morph.closeKernel;
     const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(kc, kc));
@@ -226,12 +231,16 @@ function diffAndFindHoles(curGray, morph, bullet) {
     cv.morphologyEx(bin, closed, cv.MORPH_CLOSE, kernel);
     bin.delete();
     kernel.delete();
-    return findHoles(closed, bullet, scale);
+    const holes = findHoles(closed, a, bullet, scale, darknessMax);
+    a.delete();
+    return holes;
   }
-  return findHoles(bin, bullet, scale);
+  const holes = findHoles(bin, a, bullet, scale, darknessMax);
+  a.delete();
+  return holes;
 }
 
-function findHoles(bin, bullet, scale) {
+function findHoles(bin, curFrame, bullet, scale, darknessMax) {
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
   cv.findContours(bin, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -246,6 +255,13 @@ function findHoles(bin, bullet, scale) {
     const rect = cv.boundingRect(cnt);
     const aspect = rect.width > rect.height ? rect.width / rect.height : rect.height / rect.width;
     if (aspect > bullet.maxAspectRatio) { cnt.delete(); continue; }
+    // A real hole is dark in the current frame. Reject blobs that are only
+    // "slightly darker than baseline" but actually bright (e.g. shifted ring
+    // edges from camera shake), which the asymmetric diff can still surface.
+    const roi = curFrame.roi(new cv.Rect(rect.x, rect.y, rect.width, rect.height));
+    const curMean = scalar0(cv.mean(roi));
+    roi.delete();
+    if (curMean > darknessMax) { cnt.delete(); continue; }
     const m = cv.moments(cnt);
     holes.push({
       xPx: (m.m10 / (m.m00 || 1)) / scale,
@@ -289,28 +305,32 @@ function handleCapture(msg) {
     src.delete();
     H.delete();
 
-    // Synthetic shot: draw a dark "bullet hole" onto the warped frame so the
-    // normal absdiff pipeline detects it as a fresh hole (home test mode).
-    if (msg.simulate && Number.isFinite(msg.simulate.x)) {
-      const sim = msg.simulate;
-      cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round(sim.r || 10), new cv.Scalar(0, 0, 0, 255), -1, cv.LINE_AA);
-      // faint torn-paper ring around the hole
-      cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round((sim.r || 10) * 1.6), new cv.Scalar(90, 90, 90, 255), 2, cv.LINE_AA);
-    }
-
-    const gray = new cv.Mat();
-    cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
-    warped.delete();
+    // Clean grayscale of the current frame — always used as the next baseline.
+    const cleanGray = new cv.Mat();
+    cv.cvtColor(warped, cleanGray, cv.COLOR_RGBA2GRAY);
 
     let holes = [];
-    if (msg.hasBaseline && baseline) {
-      holes = diffAndFindHoles(gray, msg.morph, msg.bullet);
+    const isSimulate = !!(msg.simulate && Number.isFinite(msg.simulate.x));
+    if (isSimulate) {
+      // Draw a fake dark "bullet hole" (with a torn-paper ring), then diff
+      // that frame against the clean baseline so the real pipeline detects it.
+      const sim = msg.simulate;
+      cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round(sim.r || 10), new cv.Scalar(0, 0, 0, 255), -1, cv.LINE_AA);
+      cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round((sim.r || 10) * 1.6), new cv.Scalar(90, 90, 90, 255), 2, cv.LINE_AA);
+      const simGray = new cv.Mat();
+      cv.cvtColor(warped, simGray, cv.COLOR_RGBA2GRAY);
+      if (msg.hasBaseline && baseline) holes = diffAndFindHoles(simGray, msg.morph, msg.bullet);
+      simGray.delete();
+    } else if (msg.hasBaseline && baseline) {
+      holes = diffAndFindHoles(cleanGray, msg.morph, msg.bullet);
     }
+    warped.delete();
 
-    // Store current frame as next baseline.
+    // Baseline is always the CLEAN current frame, so a synthetic hole never
+    // pollutes it and a later real shot isn't flagged as a "disappeared" hole.
     if (baseline) baseline.delete();
-    baseline = gray.clone();
-    gray.delete();
+    baseline = cleanGray.clone();
+    cleanGray.delete();
 
     reply({ id: msg.id, type: "capture", holes });
   } catch (e) {

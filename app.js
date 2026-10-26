@@ -71,7 +71,7 @@
     target: { widthMm: 170, heightMm: 170, centerXmm: 85, centerYmm: 85, distanceM: 10, warpWidthPx: 1024, warpHeightPx: 1024 },
     bullet: { caliberMm: 4.5, breakTheLine: true, minHoleAreaPx: 20, maxHoleAreaPx: 3000, maxAspectRatio: 2.6 },
     trigger: { threshold: 0.14, shotDelayMs: 70, cooldownMs: 650, rmsWindow: 96 },
-    morph: { blurKernel: 5, thresholdMethod: "otsu", fixedThreshold: 28, closeKernel: 3, diffScale: 0.6 },
+    morph: { blurKernel: 5, thresholdMethod: "otsu", fixedThreshold: 28, closeKernel: 3, diffScale: 0.6, darknessMax: 120 },
     rings: [
       { label: "X", diameterMm: 5, score: 10.9 },
       { label: "10", diameterMm: 11.5, score: 10 },

@@ -68,7 +68,8 @@
         "thresholdMethod": { "enum": ["otsu", "fixed"] },
         "fixedThreshold": { "type": "number", "minimum": 0 },
         "closeKernel": { "type": "integer", "minimum": 0 },
-        "diffScale": { "type": "number", "minimum": 0.1, "maximum": 1 }
+        "diffScale": { "type": "number", "minimum": 0.1, "maximum": 1 },
+        "darknessMax": { "type": "number", "minimum": 0, "maximum": 255 }
       }
     }
   }
