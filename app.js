@@ -121,7 +121,7 @@
   }
 
   /* --------------------------- voice feedback ---------------------------- */
-  const NUM_WORDS = { 0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten" };
+  const NUM_WORDS = { 0: "zero", 1: "one", 2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten", 11: "eleven", 12: "twelve" };
 
   function speak(text) {
     try {
@@ -140,6 +140,11 @@
     if (shot.ring === "M" || shot.score === 0) text = "miss";
     else if (shot.ring === "X" || !Number.isInteger(shot.score)) text = "inner ten";
     else text = NUM_WORDS[shot.score] || String(shot.score);
+
+    // Add clock direction when it is meaningful (not dead center).
+    if (shot.clockHour && shot.distMm > 3) {
+      text += ", " + NUM_WORDS[shot.clockHour] + " o'clock";
+    }
     speak(text);
   }
 
@@ -650,7 +655,7 @@
         registerShot(shot);
         drawShotPreview(shot, holes[0]);
         vibrate(60);
-        beep(1800, 0.08, "square", 0.10);
+        // Voice feedback now replaces the hit beep; no short tone duplicate.
       } else {
         beep(500, 0.1, "square", 0.08);
         setDebug("Shot captured — no new hole detected (baseline reset).");
@@ -705,7 +710,16 @@
     for (const r of cfg.rings) {
       if (eff <= r.diameterMm / 2) { ring = r; break; }
     }
-    return { xPx: hole.xPx, yPx: hole.yPx, mmX, mmY, distMm: dist, ring: ring.label, score: ring.score };
+    const clockHour = clockFromDxDy(mmX - t.centerXmm, mmY - t.centerYmm);
+    return { xPx: hole.xPx, yPx: hole.yPx, mmX, mmY, distMm: dist, ring: ring.label, score: ring.score, clockHour };
+  }
+
+  // Clock-face bearing (shooting convention): 12 = up, 3 = right, 6 = down,
+  // 9 = left, measured clockwise. dx is right-positive, dy is down-positive.
+  function clockFromDxDy(dx, dy) {
+    let ang = Math.atan2(dx, -dy);
+    if (ang < 0) ang += Math.PI * 2;
+    return (Math.round(ang / (Math.PI / 6)) % 12) || 12;
   }
 
   function registerShot(shot) {
@@ -812,7 +826,8 @@
 
   function drawShotPreview(shot, hole) {
     const p = mapWarpedToScreen(hole.xPx, hole.yPx);
-    state.overlayHoles.push({ x: p[0], y: p[1], ring: shot.ring });
+    const dir = shot.clockHour && shot.distMm > 3 ? shot.clockHour + "h" : "C";
+    state.overlayHoles.push({ x: p[0], y: p[1], ring: shot.ring + dir });
     drawMarkers();
   }
 
