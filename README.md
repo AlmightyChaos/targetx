@@ -124,6 +124,6 @@ the current string.
   network connection and a few seconds.
 - The audio threshold must be tuned to your firearm/range (use the
   **⚙ sensitivity** slider). For dry testing press **⦿ TEST**.
-- The diff pipeline records each distinct new hole found in a captured frame.
-  Audio triggers inside the configured cooldown window (650 ms by default)
-  are still treated as one shot.
+- The diff pipeline records new holes found in each captured frame. Audio
+  triggers inside the configured cooldown window (650 ms by default) are
+  treated as one shot; wait for frame processing before the next shot.

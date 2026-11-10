@@ -64,7 +64,6 @@
     rotationOffset: 0,
     learnedMarkers: null,
     processing: false,
-    captureQueue: [],
     lastShotAt: 0,
     cfg: null,
     lastMarkers: [],     // markers in full-res video coords
@@ -85,9 +84,9 @@
       red: { hLow1: 0, hHigh1: 12, hLow2: 160, hHigh2: 180, sMin: 85, vMin: 100 },
       green: { hLow: 35, hHigh: 95, sMin: 75, vMin: 95 },
     },
-    bullet: { caliberMm: 4.5, breakTheLine: true, minHoleAreaPx: 6, maxHoleAreaPx: 3000, maxAspectRatio: 2.6 },
+    bullet: { caliberMm: 4.5, breakTheLine: true, minHoleAreaPx: 20, maxHoleAreaPx: 3000, maxAspectRatio: 2.6 },
     trigger: { threshold: 0.14, shotDelayMs: 70, cooldownMs: 650, rmsWindow: 96 },
-    morph: { blurKernel: 5, thresholdMethod: "otsu", fixedThreshold: 28, closeKernel: 3, diffScale: 1, darknessMax: 120 },
+    morph: { blurKernel: 5, thresholdMethod: "otsu", fixedThreshold: 28, closeKernel: 3, diffScale: 0.6, darknessMax: 120 },
     rings: [
       { label: "X", diameterMm: 5, score: 10.9 },
       { label: "10", diameterMm: 11.5, score: 10 },
@@ -465,6 +464,7 @@
     const now = performance.now();
     if (now - state.lastShotAt < cfg.cooldownMs) return;
     state.lastShotAt = now;
+    setDebug("Audio trigger detected — capturing target frame.");
     captureShot();
   }
 
@@ -705,97 +705,72 @@
 
   /* --------------------------- shot pipeline ----------------------------- */
   async function captureShot(simulate) {
+    if (state.processing) {
+      setDebug("Shot trigger skipped — target frame is still processing. Wait before the next shot.");
+      return;
+    }
     if (!worker || !state.stream) return;
     if (!state.locked || !state.H) {
       setDebug("Lock the four markers before firing.");
       beep(300, 0.12, "square", 0.06);
       return;
     }
-    if (!simulate) await sleep(state.cfg.trigger.shotDelayMs);
-
-    if (state.mode === "hole" && !state.hasBaseline) {
-      if (baselinePromise) await baselinePromise;
-      const waitUntil = performance.now() + 2000;
-      while (!state.hasBaseline && state.processing && performance.now() < waitUntil) await sleep(20);
-      if (!state.hasBaseline) await primeBaseline();
-      if (!state.hasBaseline) {
-        setDebug("Shot not captured — target baseline is not ready. Check the camera and lock again.");
-        return;
-      }
-    }
-
-    const frame = readFrameBuf(); // Capture each trigger before processing can fall behind.
-    if (!frame) return;
-    if (state.captureQueue.length >= 5) {
-      setDebug("Shot queue full — slow down or lower the camera resolution.");
-      return;
-    }
-    state.captureQueue.push({
-      frame,
-      H: [...state.H],
-      Hinv: state.Hinv ? [...state.Hinv] : null,
-      target: { ...state.cfg.target },
-      morph: { ...state.cfg.morph },
-      bullet: { ...state.cfg.bullet },
-      laser: state.cfg.laser,
-      scoring: {
-        target: { ...state.cfg.target },
-        bullet: { ...state.cfg.bullet },
-        laser: state.cfg.laser,
-        rings: state.cfg.rings,
-      },
-      mode: state.mode,
-      simulate,
-    });
-    processCaptureQueue();
-  }
-
-  async function processCaptureQueue() {
-    if (state.processing || !state.captureQueue.length) return;
     state.processing = true;
     try {
-      while (state.captureQueue.length) {
-        const job = state.captureQueue.shift();
-        const { frame } = job;
-        const res = await callWorker("capture", {
-          buf: frame.buf,
-          width: frame.width,
-          height: frame.height,
-          H: job.H,
-          warpW: job.target.warpWidthPx,
-          warpH: job.target.warpHeightPx,
-          morph: job.morph,
-          bullet: job.bullet,
-          mode: job.mode,
-          laser: job.laser,
-          hasBaseline: job.mode === "hole" ? state.hasBaseline : false,
-          simulate: job.simulate || undefined,
-        }, [frame.buf]);
+      if (!simulate) await sleep(state.cfg.trigger.shotDelayMs);
 
-        if (job.mode === "hole") state.hasBaseline = true;
-        const holes = res.holes || [];
+      const frame = readFrameBuf();
+      if (!frame) return;
+      const H = [...state.H];
+      const Hinv = state.Hinv ? [...state.Hinv] : null;
+      const target = { ...state.cfg.target };
+      const bullet = { ...state.cfg.bullet };
+      const scoring = {
+        target,
+        bullet,
+        laser: state.cfg.laser,
+        rings: state.cfg.rings,
+      };
+      const mode = state.mode;
+      const res = await callWorker("capture", {
+        buf: frame.buf,
+        width: frame.width,
+        height: frame.height,
+        H,
+        warpW: target.warpWidthPx,
+        warpH: target.warpHeightPx,
+        morph: state.cfg.morph,
+        bullet,
+        mode,
+        laser: state.cfg.laser,
+        hasBaseline: mode === "hole" ? state.hasBaseline : false,
+        simulate: simulate || undefined,
+      }, [frame.buf]);
 
-        if (holes.length) {
-          const detectedShots = job.mode === "hole" ? holes : holes.slice(0, 1);
-          for (const hole of detectedShots) {
-            const shot = scoreHole(hole, job.scoring);
-            registerShot(shot);
-            drawShotPreview(shot, hole, job.Hinv);
-          }
-          vibrate(60);
-        } else {
-          beep(500, 0.1, "square", 0.08);
-          setDebug(job.mode === "hole"
-            ? "Shot captured — no new hole detected (baseline reset)."
-            : "Captured — no " + (job.mode === "both" ? "red/green" : job.mode) + " laser dot detected.");
+      if (mode === "hole") state.hasBaseline = true;
+      const holes = res.holes || [];
+
+      if (holes.length) {
+        const detectedShots = mode === "hole" ? holes : holes.slice(0, 1);
+        for (const hole of detectedShots) {
+          const shot = scoreHole(hole, scoring);
+          registerShot(shot);
+          drawShotPreview(shot, hole, Hinv);
         }
+        vibrate(60);
+      } else {
+        beep(500, 0.1, "square", 0.08);
+        setDebug(mode === "hole"
+          ? (state.hasBaseline
+            ? "Shot captured — no new dark hole found. Check focus, lighting, and target baseline."
+            : "Shot captured — baseline was not ready. Lock the target again.")
+          : "Captured — no " + (mode === "both" ? "red/green" : mode) + " laser dot detected.");
       }
     } catch (e) {
       log("shot pipeline error", e);
       setDebug("Pipeline error: " + (e && e.message ? e.message : e));
     } finally {
       state.processing = false;
-      if (state.captureQueue.length) processCaptureQueue();
     }
   }
 

@@ -35,7 +35,7 @@
   "bullet": {
     "caliberMm": 4.5,
     "breakTheLine": true,
-    "minHoleAreaPx": 6,
+    "minHoleAreaPx": 20,
     "maxHoleAreaPx": 3000,
     "maxAspectRatio": 2.6
   },
@@ -76,7 +76,7 @@
     "thresholdMethod": "otsu",
     "fixedThreshold": 28,
     "closeKernel": 3,
-    "diffScale": 1,
+    "diffScale": 0.6,
     "darknessMax": 120
   }
 }
