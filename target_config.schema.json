@@ -5,6 +5,12 @@
   "required": ["target", "rings", "bullet", "trigger", "morph"],
   "properties": {
     "name": { "type": "string" },
+    "detection": {
+      "type": "object",
+      "properties": {
+        "mode": { "enum": ["hole", "red", "green", "both"], "default": "hole" }
+      }
+    },
     "target": {
       "type": "object",
       "required": ["widthMm", "heightMm", "centerXmm", "centerYmm", "warpWidthPx", "warpHeightPx"],
@@ -48,6 +54,38 @@
         "minHoleAreaPx": { "type": "number", "minimum": 0 },
         "maxHoleAreaPx": { "type": "number", "minimum": 0 },
         "maxAspectRatio": { "type": "number", "minimum": 1 }
+      }
+    },
+    "laser": {
+      "type": "object",
+      "properties": {
+        "minAreaPx": { "type": "number", "minimum": 0 },
+        "maxAreaPx": { "type": "number", "minimum": 0 },
+        "maxAspectRatio": { "type": "number", "minimum": 1 },
+        "openKernel": { "type": "integer", "minimum": 0 },
+        "closeKernel": { "type": "integer", "minimum": 0 },
+        "breakTheLine": { "type": "boolean" },
+        "spotDiameterMm": { "type": "number", "minimum": 0 },
+        "red": {
+          "type": "object",
+          "properties": {
+            "hLow1": { "type": "integer", "minimum": 0, "maximum": 180 },
+            "hHigh1": { "type": "integer", "minimum": 0, "maximum": 180 },
+            "hLow2": { "type": "integer", "minimum": 0, "maximum": 180 },
+            "hHigh2": { "type": "integer", "minimum": 0, "maximum": 180 },
+            "sMin": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "vMin": { "type": "integer", "minimum": 0, "maximum": 255 }
+          }
+        },
+        "green": {
+          "type": "object",
+          "properties": {
+            "hLow": { "type": "integer", "minimum": 0, "maximum": 180 },
+            "hHigh": { "type": "integer", "minimum": 0, "maximum": 180 },
+            "sMin": { "type": "integer", "minimum": 0, "maximum": 255 },
+            "vMin": { "type": "integer", "minimum": 0, "maximum": 255 }
+          }
+        }
       }
     },
     "trigger": {

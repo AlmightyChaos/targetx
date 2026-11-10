@@ -10,6 +10,9 @@
     "warpWidthPx": 1024,
     "warpHeightPx": 1024
   },
+  "detection": {
+    "mode": "hole"
+  },
   "markers": {
     "dictionary": "DICT_4X4_50",
     "ids": { "topLeft": 0, "topRight": 1, "bottomRight": 2, "bottomLeft": 3 },
@@ -35,6 +38,29 @@
     "minHoleAreaPx": 20,
     "maxHoleAreaPx": 3000,
     "maxAspectRatio": 2.6
+  },
+  "laser": {
+    "minAreaPx": 8,
+    "maxAreaPx": 2500,
+    "maxAspectRatio": 2.5,
+    "openKernel": 3,
+    "closeKernel": 5,
+    "breakTheLine": false,
+    "spotDiameterMm": 0,
+    "red": {
+      "hLow1": 0,
+      "hHigh1": 12,
+      "hLow2": 160,
+      "hHigh2": 180,
+      "sMin": 110,
+      "vMin": 120
+    },
+    "green": {
+      "hLow": 35,
+      "hHigh": 95,
+      "sMin": 90,
+      "vMin": 110
+    }
   },
   "trigger": {
     "threshold": 0.14,

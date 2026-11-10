@@ -280,6 +280,109 @@ function findHoles(bin, curFrame, bullet, scale, darknessMax) {
   return holes;
 }
 
+/* --------------------------- laser spots --------------------------- */
+// Laser dots are transient bright colored points, so they are detected
+// directly in the current warped frame (no diff baseline). HSV thresholding
+// is far more robust than RGB channel math under changing exposure.
+function laserMask(hsv, ranges) {
+  const mask = cv.Mat.zeros(hsv.rows, hsv.cols, cv.CV_8UC1);
+  for (const range of ranges) {
+    const lower = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [...range.lower, 0]);
+    const upper = new cv.Mat(hsv.rows, hsv.cols, hsv.type(), [...range.upper, 255]);
+    const m = new cv.Mat();
+    cv.inRange(hsv, lower, upper, m);
+    cv.bitwise_or(mask, m, mask);
+    lower.delete();
+    upper.delete();
+    m.delete();
+  }
+  return mask;
+}
+
+function morphMask(mask, op, k) {
+  if (!k || k <= 1) return mask;
+  const kernel = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(k, k));
+  const out = new cv.Mat();
+  cv.morphologyEx(mask, out, op, kernel);
+  kernel.delete();
+  mask.delete();
+  return out;
+}
+
+function redRanges(red) {
+  const r = red || {};
+  const s = r.sMin ?? 110;
+  const v = r.vMin ?? 120;
+  return [
+    { lower: [r.hLow1 ?? 0, s, v], upper: [r.hHigh1 ?? 12, 255, 255] },
+    { lower: [r.hLow2 ?? 160, s, v], upper: [r.hHigh2 ?? 180, 255, 255] },
+  ];
+}
+
+function greenRanges(green) {
+  const g = green || {};
+  return [{ lower: [g.hLow ?? 35, g.sMin ?? 90, g.vMin ?? 110], upper: [g.hHigh ?? 95, 255, 255] }];
+}
+
+function spotsForColor(hsv, ranges, color, laser) {
+  let work = laserMask(hsv, ranges);
+  work = morphMask(work, cv.MORPH_OPEN, laser.openKernel ?? 3);
+  work = morphMask(work, cv.MORPH_CLOSE, laser.closeKernel ?? 5);
+
+  const contours = new cv.MatVector();
+  const hierarchy = new cv.Mat();
+  cv.findContours(work, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+  const spots = [];
+  const minA = laser.minAreaPx ?? 8;
+  const maxA = laser.maxAreaPx ?? 2500;
+  const maxAspect = laser.maxAspectRatio ?? 2.5;
+
+  for (let i = 0; i < contours.size(); i++) {
+    const cnt = contours.get(i);
+    const area = cv.contourArea(cnt);
+    if (area < minA || area > maxA) { cnt.delete(); continue; }
+    const rect = cv.boundingRect(cnt);
+    const aspect = rect.width > rect.height ? rect.width / rect.height : rect.height / rect.width;
+    if (aspect > maxAspect) { cnt.delete(); continue; }
+    const m = cv.moments(cnt);
+    spots.push({
+      xPx: m.m10 / (m.m00 || 1),
+      yPx: m.m01 / (m.m00 || 1),
+      wPx: rect.width,
+      hPx: rect.height,
+      areaPx: area,
+      color,
+    });
+    cnt.delete();
+  }
+
+  contours.delete();
+  hierarchy.delete();
+  work.delete();
+  return spots;
+}
+
+function findLaserSpots(rgba, laserCfg, mode) {
+  const laser = laserCfg || {};
+  const rgb = new cv.Mat();
+  cv.cvtColor(rgba, rgb, cv.COLOR_RGBA2RGB);
+  const hsv = new cv.Mat();
+  cv.cvtColor(rgb, hsv, cv.COLOR_RGB2HSV);
+  rgb.delete();
+
+  let spots = [];
+  if (mode === "red" || mode === "both") {
+    spots = spots.concat(spotsForColor(hsv, redRanges(laser.red), "red", laser));
+  }
+  if (mode === "green" || mode === "both") {
+    spots = spots.concat(spotsForColor(hsv, greenRanges(laser.green), "green", laser));
+  }
+  hsv.delete();
+  spots.sort((a, b) => b.areaPx - a.areaPx);
+  return spots;
+}
+
 /* --------------------------- handlers --------------------------- */
 function handleDetect(msg) {
   try {
@@ -305,12 +408,32 @@ function handleCapture(msg) {
     src.delete();
     H.delete();
 
+    const mode = msg.mode || "hole";
+    const isSimulate = !!(msg.simulate && Number.isFinite(msg.simulate.x));
+    let holes = [];
+
+    if (mode !== "hole") {
+      // Laser mode: optionally inject a synthetic colored dot, then detect
+      // bright red/green spots directly in the current warped frame.
+      if (isSimulate) {
+        const sim = msg.simulate;
+        const rgba = sim.color === "green" ? [0, 255, 0, 255] : [255, 0, 0, 255];
+        cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round(sim.r || 10), new cv.Scalar(...rgba), -1, cv.LINE_AA);
+        cv.circle(warped, new cv.Point(sim.x, sim.y), Math.round((sim.r || 10) * 1.7), new cv.Scalar(...rgba), 2, cv.LINE_AA);
+      }
+      holes = findLaserSpots(warped, msg.laser, mode);
+      warped.delete();
+      // A stale bullet-hole baseline is useless here; drop it so switching
+      // back to hole mode always starts from a fresh frame.
+      if (baseline) { baseline.delete(); baseline = null; }
+      reply({ id: msg.id, type: "capture", holes });
+      return;
+    }
+
     // Clean grayscale of the current frame — always used as the next baseline.
     const cleanGray = new cv.Mat();
     cv.cvtColor(warped, cleanGray, cv.COLOR_RGBA2GRAY);
 
-    let holes = [];
-    const isSimulate = !!(msg.simulate && Number.isFinite(msg.simulate.x));
     if (isSimulate) {
       // Draw a fake dark "bullet hole" (with a torn-paper ring), then diff
       // that frame against the clean baseline so the real pipeline detects it.

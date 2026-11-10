@@ -20,6 +20,13 @@ iPhone (Safari / Chrome) and Android.
    morphological close → findContours`), filtered by area/aspect ratio, and
    the centroid is converted to physical mm and scored against the configured
    rings (with optional break-the-line bullet-radius compensation).
+    In **Red laser**, **Green laser**, or **Red + green lasers** mode, the same
+    capture, target alignment, ring scoring, and grouping flow is used, but the
+    warped frame is thresholded in HSV for bright red/green spots instead of
+    comparing bullet-hole differences. Laser shots are sampled on the normal
+    audio trigger; keep the laser spot visible through the configured shot
+    delay. Detection thresholds and spot-size scoring options are configurable
+    in `target_config.json`.
 
 ## Printing the target
 
@@ -55,6 +62,9 @@ Edit [`target_config.json`](./target_config.json):
 - `rings` — innermost-first list of `{ label, diameterMm, score }`.
 - `bullet` — caliber (mm) for break-the-line compensation and hole-area /
   aspect-ratio filters.
+- `detection.mode` — `hole` (default), `red`, `green`, or `both`.
+- `laser` — HSV color thresholds, spot filters, and optional break-the-line
+  spot diameter for red/green laser scoring.
 - `trigger` — audio threshold, shot delay, cooldown.
 - `morph` — diff blur/threshold/morphology knobs.
 

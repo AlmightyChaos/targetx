@@ -41,6 +41,7 @@
   const caliber = $("caliber");
   const caliberVal = $("caliberVal");
   const breakLine = $("breakLine");
+  const detectionMode = $("detectionMode");
   const resolution = $("resolution");
   const recentShots = $("recentShots");
   const recentVal = $("recentVal");
@@ -68,10 +69,19 @@
     overlayHoles: [],
     lockCenters: null,   // last assigned marker centers (for drift reset)
     highlightCount: 10,  // latest N shots highlighted + used for grouping
+    mode: "hole",        // hole | red | green | both (laser)
   };
 
   const DEFAULT_CFG = {
     target: { widthMm: 170, heightMm: 170, centerXmm: 85, centerYmm: 85, distanceM: 10, warpWidthPx: 1024, warpHeightPx: 1024 },
+    detection: { mode: "hole" },
+    laser: {
+      minAreaPx: 8, maxAreaPx: 2500, maxAspectRatio: 2.5,
+      openKernel: 3, closeKernel: 5,
+      breakTheLine: false, spotDiameterMm: 0,
+      red: { hLow1: 0, hHigh1: 12, hLow2: 160, hHigh2: 180, sMin: 110, vMin: 120 },
+      green: { hLow: 35, hHigh: 95, sMin: 90, vMin: 110 },
+    },
     bullet: { caliberMm: 4.5, breakTheLine: true, minHoleAreaPx: 20, maxHoleAreaPx: 3000, maxAspectRatio: 2.6 },
     trigger: { threshold: 0.14, shotDelayMs: 70, cooldownMs: 650, rmsWindow: 96 },
     morph: { blurKernel: 5, thresholdMethod: "otsu", fixedThreshold: 28, closeKernel: 3, diffScale: 0.6, darknessMax: 120 },
@@ -152,7 +162,21 @@
   async function loadConfig() {
     try {
       const res = await fetch("./target_config.json", { cache: "no-cache" });
-      if (res.ok) { state.cfg = JSON.parse(await res.text()); return state.cfg; }
+      if (res.ok) {
+        const parsed = JSON.parse(await res.text());
+        const laser = parsed.laser || {};
+        state.cfg = {
+          ...parsed,
+          detection: { ...DEFAULT_CFG.detection, ...(parsed.detection || {}) },
+          laser: {
+            ...DEFAULT_CFG.laser,
+            ...laser,
+            red: { ...DEFAULT_CFG.laser.red, ...(laser.red || {}) },
+            green: { ...DEFAULT_CFG.laser.green, ...(laser.green || {}) },
+          },
+        };
+        return state.cfg;
+      }
     } catch (e) { log("config load failed, using defaults", e); }
     state.cfg = DEFAULT_CFG;
     return state.cfg;
@@ -167,6 +191,9 @@
     caliber.value = String(state.cfg.bullet.caliberMm);
     caliberVal.textContent = state.cfg.bullet.caliberMm.toFixed(1);
     breakLine.checked = !!state.cfg.bullet.breakTheLine;
+    const configuredMode = state.cfg.detection && state.cfg.detection.mode;
+    state.mode = ["hole", "red", "green", "both"].includes(configuredMode) ? configuredMode : "hole";
+    if (detectionMode) detectionMode.value = state.mode;
   }
 
   /* --------------------------- worker ------------------------------------ */
@@ -587,6 +614,7 @@
   // Warp the current frame and store it as the diff baseline (no diff, no
   // shot registration), so the very first shot after a lock is detected.
   async function primeBaseline() {
+    if (state.mode !== "hole") return; // laser dots need no diff baseline
     if (!worker || !state.stream || !state.H || state.processing) return;
     state.processing = true;
     try {
@@ -638,7 +666,9 @@
           warpH: state.cfg.target.warpHeightPx,
           morph: state.cfg.morph,
           bullet: state.cfg.bullet,
-          hasBaseline: state.hasBaseline,
+          mode: state.mode,
+          laser: state.cfg.laser,
+          hasBaseline: state.mode === "hole" ? state.hasBaseline : false,
           simulate: simulate || undefined,
         }, [frame.buf]);
       } catch (e) {
@@ -647,7 +677,7 @@
         return;
       }
 
-      state.hasBaseline = true;
+      if (state.mode === "hole") state.hasBaseline = true;
       const holes = res.holes || [];
 
       if (holes.length) {
@@ -658,7 +688,9 @@
         // Voice feedback now replaces the hit beep; no short tone duplicate.
       } else {
         beep(500, 0.1, "square", 0.08);
-        setDebug("Shot captured — no new hole detected (baseline reset).");
+        setDebug(state.mode === "hole"
+          ? "Shot captured — no new hole detected (baseline reset)."
+          : "Captured — no " + (state.mode === "both" ? "red/green" : state.mode) + " laser dot detected.");
       }
     } catch (e) {
       log("shot pipeline error", e);
@@ -688,30 +720,47 @@
     const radMm = 5 + Math.random() * 60;
     const x = cx + Math.cos(ang) * radMm * pxPerMm;
     const y = cy + Math.sin(ang) * radMm * pxPerMm;
-    const r = Math.max(6, (state.cfg.bullet.caliberMm / 2) * pxPerMm);
+    const isLaser = state.mode !== "hole";
+    const r = isLaser
+      ? Math.max(8, 3 * pxPerMm) // ~6 mm laser spot
+      : Math.max(6, (state.cfg.bullet.caliberMm / 2) * pxPerMm);
+    let color;
+    if (isLaser) {
+      if (state.mode === "red") color = "red";
+      else if (state.mode === "green") color = "green";
+      else color = Math.random() < 0.5 ? "red" : "green";
+    }
 
-    captureShot({ x, y, r });
+    captureShot({ x, y, r, color });
   }
 
   /* --------------------------- scoring ----------------------------------- */
   function scoreHole(hole) {
     const cfg = state.cfg;
     const t = cfg.target;
+    const isLaser = !!hole.color;
+    const l = cfg.laser || {};
     const b = cfg.bullet;
     const pxPerMmX = t.warpWidthPx / t.widthMm;
     const pxPerMmY = t.warpHeightPx / t.heightMm;
     const mmX = hole.xPx / pxPerMmX;
     const mmY = hole.yPx / pxPerMmY;
     const dist = Math.hypot(mmX - t.centerXmm, mmY - t.centerYmm);
+
+    // For lasers we score the center of the spot; for bullets we can apply
+    // break-the-line radius compensation.
+    const breakLineEnabled = isLaser ? !!l.breakTheLine : b.breakTheLine;
+    const diameterMm = isLaser ? (l.spotDiameterMm || 0) : b.caliberMm;
     let eff = dist;
-    if (b.breakTheLine) eff = Math.max(0, dist - b.caliberMm / 2);
+    if (breakLineEnabled && diameterMm > 0) eff = Math.max(0, dist - diameterMm / 2);
+
     // Miss by default; match the innermost ring whose radius covers the shot.
     let ring = { label: "M", score: 0 };
     for (const r of cfg.rings) {
       if (eff <= r.diameterMm / 2) { ring = r; break; }
     }
     const clockHour = clockFromDxDy(mmX - t.centerXmm, mmY - t.centerYmm);
-    return { xPx: hole.xPx, yPx: hole.yPx, mmX, mmY, distMm: dist, ring: ring.label, score: ring.score, clockHour };
+    return { xPx: hole.xPx, yPx: hole.yPx, mmX, mmY, distMm: dist, ring: ring.label, score: ring.score, clockHour, kind: isLaser ? "laser" : "hole", color: hole.color || null };
   }
 
   // Clock-face bearing (shooting convention): 12 = up, 3 = right, 6 = down,
@@ -725,7 +774,8 @@
   function registerShot(shot) {
     state.shots.push(shot);
     readShots.textContent = String(state.shots.length);
-    readLastShot.textContent = shot.ring === "M" ? "MISS" : (shot.ring + " · " + (Number.isInteger(shot.score) ? shot.score : shot.score.toFixed(1)));
+    const tag = shot.color ? (shot.color === "red" ? "R" : "G") : "";
+    readLastShot.textContent = shot.ring === "M" ? "MISS" : (shot.ring + " · " + (Number.isInteger(shot.score) ? shot.score : shot.score.toFixed(1)) + (tag ? " · " + tag : ""));
     readLastShot.classList.add("is-hit");
     updateGrouping();
     stage.classList.remove("is-flash");
@@ -810,7 +860,9 @@
     const n = state.overlayHoles.length;
     state.overlayHoles.forEach((h, i) => {
       const recent = i >= n - state.highlightCount;
-      const col = recent ? "255,176,32" : "150,162,180";
+      const col = h.color === "red" ? (recent ? "255,80,80" : "160,80,80")
+                : h.color === "green" ? (recent ? "64,255,128" : "80,160,100")
+                : (recent ? "255,176,32" : "150,162,180");
       const alpha = recent ? 0.95 : 0.45;
 
       overlayCtx.fillStyle = `rgba(${col},${alpha})`;
@@ -827,7 +879,7 @@
   function drawShotPreview(shot, hole) {
     const p = mapWarpedToScreen(hole.xPx, hole.yPx);
     const dir = shot.clockHour && shot.distMm > 3 ? shot.clockHour + "h" : "C";
-    state.overlayHoles.push({ x: p[0], y: p[1], ring: shot.ring + dir });
+    state.overlayHoles.push({ x: p[0], y: p[1], ring: shot.ring + dir, color: shot.color });
     drawMarkers();
   }
 
@@ -885,6 +937,15 @@
   });
   breakLine.addEventListener("change", () => {
     if (state.cfg) state.cfg.bullet.breakTheLine = breakLine.checked;
+  });
+
+  detectionMode.addEventListener("change", () => {
+    state.mode = detectionMode.value;
+    if (state.cfg) state.cfg.detection = { ...(state.cfg.detection || {}), mode: state.mode };
+    state.hasBaseline = false;
+    callWorker("clear", {}).catch(() => {});
+    if (state.mode === "hole" && state.locked) primeBaseline();
+    setDebug(state.mode === "hole" ? "Mode: bullet hole detection" : "Mode: " + state.mode + " laser detection");
   });
 
   recentShots.addEventListener("input", () => {
