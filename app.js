@@ -10,6 +10,7 @@
   "use strict";
 
   const DETECT_SCALE_MAX = 960; // preserve enough marker pixels for reliable long-range detection
+  const LOCK_LOSS_GRACE_MS = 1200;
 
   /* ------------------------------ DOM refs ------------------------------- */
   const $ = (id) => document.getElementById(id);
@@ -68,6 +69,7 @@
     lastMarkers: [],     // markers in full-res video coords
     overlayHoles: [],
     lockCenters: null,   // last assigned marker centers (for drift reset)
+    lockMissSince: null,
     highlightCount: 10,  // latest N shots highlighted + used for grouping
     mode: "hole",        // hole | red | green | both (laser)
   };
@@ -393,6 +395,7 @@
     state.Hinv = null;
     state.hasBaseline = false;
     state.lockCenters = null;
+    state.lockMissSince = null;
     state.running = false;
     callWorker("clear", {}).catch(() => {});
     setStatus("OFFLINE", "idle");
@@ -618,39 +621,42 @@
 
     const assignment = assignCorners(markers);
     const wasLocked = state.locked;
+    const hom = assignment ? computeHomography(assignment) : null;
 
-    if (assignment) {
-      const hom = computeHomography(assignment);
-      if (hom) {
-        state.H = hom.H;
-        state.Hinv = hom.Hinv;
+    if (assignment && hom) {
+      state.lockMissSince = null;
+      state.H = hom.H;
+      state.Hinv = hom.Hinv;
 
-        // Detect drift of the assigned markers to reset the diff baseline.
-        const centers = [assignment.tl.center, assignment.tr.center, assignment.br.center, assignment.bl.center];
-        if (!wasLocked || markerDrift(centers) > 14) {
-          state.hasBaseline = false;
-          callWorker("clear", {}).catch(() => {});
-          primeBaseline();
-        }
-        state.lockCenters = centers;
+      // Detect drift of the assigned markers to reset the diff baseline.
+      const centers = [assignment.tl.center, assignment.tr.center, assignment.br.center, assignment.bl.center];
+      if (!wasLocked || markerDrift(centers) > 14) {
+        state.hasBaseline = false;
+        callWorker("clear", {}).catch(() => {});
+        primeBaseline();
+      }
+      state.lockCenters = centers;
 
-        state.locked = true;
-        alignHint.classList.add("is-hidden");
-        if (!wasLocked) {
-          setStatus("TARGET LOCKED", "locked");
-          btnLock.textContent = "◈ RE-LOCK";
-          beep(880, 0.08, "sine", 0.08);
-          saveLearnedMarkers(assignment);
-        }
-      } else {
-        state.locked = false;
+      state.locked = true;
+      alignHint.classList.add("is-hidden");
+      if (!wasLocked) {
+        setStatus("TARGET LOCKED", "locked");
+        btnLock.textContent = "◈ RE-LOCK";
+        beep(880, 0.08, "sine", 0.08);
+        saveLearnedMarkers(assignment);
       }
     } else if (wasLocked) {
+      if (state.lockMissSince === null) state.lockMissSince = performance.now();
+      if (performance.now() - state.lockMissSince >= LOCK_LOSS_GRACE_MS) {
+        state.locked = false;
+        state.lockMissSince = null;
+        state.hasBaseline = false;
+        state.lockCenters = null;
+        setStatus("SEARCHING MARKERS…", "ready");
+        alignHint.classList.remove("is-hidden");
+      }
+    } else {
       state.locked = false;
-      state.hasBaseline = false;
-      state.lockCenters = null;
-      setStatus("SEARCHING MARKERS…", "ready");
-      alignHint.classList.remove("is-hidden");
     }
 
     drawMarkers();

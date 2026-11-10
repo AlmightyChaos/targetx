@@ -87,7 +87,7 @@
           </select>
         </label>
         <label class="field">
-          <span class="field__label">Trigger sensitivity <span id="sensVal" class="field__val">0.14</span></span>
+          <span class="field__label">Trigger threshold (higher = louder sound needed) <span id="sensVal" class="field__val">0.14</span></span>
           <input id="sensitivity" type="range" min="0.02" max="0.90" step="0.01" value="0.14" />
         </label>
         <label class="field">
@@ -127,6 +127,6 @@
   <!-- OpenCV.js (WebAssembly) is loaded by app.js inside a Web Worker.
        The ?v=N query defeats stale service-worker and HTTP caches on
        already-installed devices so they fetch the latest build on reload. -->
-  <script src="./app.js?v=11" defer></script>
+  <script src="./app.js?v=12" defer></script>
 </body>
 </html>
