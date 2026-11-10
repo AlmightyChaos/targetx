@@ -37,8 +37,7 @@
     "breakTheLine": true,
     "minHoleAreaPx": 6,
     "maxHoleAreaPx": 3000,
-    "maxAspectRatio": 2.6,
-    "minCircularity": 0.12
+    "maxAspectRatio": 2.6
   },
   "laser": {
     "minAreaPx": 3,

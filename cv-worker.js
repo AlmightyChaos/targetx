@@ -255,9 +255,6 @@ function findHoles(bin, curFrame, bullet, scale, darknessMax) {
     const rect = cv.boundingRect(cnt);
     const aspect = rect.width > rect.height ? rect.width / rect.height : rect.height / rect.width;
     if (aspect > bullet.maxAspectRatio) { cnt.delete(); continue; }
-    const perimeter = cv.arcLength(cnt, true);
-    const circularity = perimeter > 0 ? (4 * Math.PI * area) / (perimeter * perimeter) : 0;
-    if (circularity < (bullet.minCircularity ?? 0.12)) { cnt.delete(); continue; }
     // A real hole is dark in the current frame. Reject blobs that are only
     // "slightly darker than baseline" but actually bright (e.g. shifted ring
     // edges from camera shake), which the asymmetric diff can still surface.

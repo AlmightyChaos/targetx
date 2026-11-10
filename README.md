@@ -62,7 +62,7 @@ Edit [`target_config.json`](./target_config.json):
   and shooting distance (for MOA).
 - `rings` — innermost-first list of `{ label, diameterMm, score }`.
 - `bullet` — caliber (mm) for break-the-line compensation and hole-area /
-  aspect-ratio/circularity filters.
+  aspect-ratio filters.
 - `detection.mode` — `hole` (default), `red`, `green`, or `both`.
 - `laser` — HSV color thresholds, spot filters, and optional break-the-line
   spot diameter for red/green laser scoring. Small laser spots are preserved

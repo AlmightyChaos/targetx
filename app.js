@@ -85,7 +85,7 @@
       red: { hLow1: 0, hHigh1: 12, hLow2: 160, hHigh2: 180, sMin: 85, vMin: 100 },
       green: { hLow: 35, hHigh: 95, sMin: 75, vMin: 95 },
     },
-    bullet: { caliberMm: 4.5, breakTheLine: true, minHoleAreaPx: 6, maxHoleAreaPx: 3000, maxAspectRatio: 2.6, minCircularity: 0.12 },
+    bullet: { caliberMm: 4.5, breakTheLine: true, minHoleAreaPx: 6, maxHoleAreaPx: 3000, maxAspectRatio: 2.6 },
     trigger: { threshold: 0.14, shotDelayMs: 70, cooldownMs: 650, rmsWindow: 96 },
     morph: { blurKernel: 5, thresholdMethod: "otsu", fixedThreshold: 28, closeKernel: 3, diffScale: 1, darknessMax: 120 },
     rings: [
