@@ -468,7 +468,24 @@ function handleClear(msg) {
 
 /* --------------------------- boot --------------------------- */
 try {
-  importScripts("https://docs.opencv.org/4.9.0/opencv.js");
+  const cdns = [
+    "https://cdn.jsdelivr.net/npm/@techstark/opencv-js@4.9.0-release.3/dist/opencv.js",
+    "https://docs.opencv.org/4.9.0/opencv.js",
+  ];
+  let loaded = false;
+  let loadError = null;
+  for (let i = 0; i < cdns.length; i++) {
+    reply({ type: "status", message: i === 0 ? "Downloading OpenCV.js…" : "Trying backup OpenCV.js source…" });
+    try {
+      importScripts(cdns[i]);
+      loaded = true;
+      break;
+    } catch (e) {
+      loadError = e;
+    }
+  }
+  if (!loaded) throw new Error("OpenCV.js could not be downloaded from either source: " + String(loadError && loadError.message ? loadError.message : loadError));
+
   const waitReady = () => {
     if (cv && cv.Mat) { reply({ type: "ready" }); return; }
     if (self.cv && self.cv.Mat) { cv = self.cv; reply({ type: "ready" }); return; }

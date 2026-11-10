@@ -199,17 +199,52 @@
   /* --------------------------- worker ------------------------------------ */
   let worker = null;
   let workerReadyPromise = null;
+  let workerReadyTimer = null;
   let reqId = 0;
   const pendingCallbacks = new Map();
+  let workerReadyResolver = null;
+  let workerReadyRejecter = null;
+
+  function failWorker(error) {
+    const message = error && error.message ? error.message : String(error || "Unknown worker error");
+    log("OpenCV worker failed", message);
+    cvStatus.textContent = "OpenCV.js: failed — " + message;
+    setLoading(false);
+
+    if (workerReadyTimer) {
+      clearTimeout(workerReadyTimer);
+      workerReadyTimer = null;
+    }
+    if (workerReadyRejecter) {
+      workerReadyRejecter(new Error(message));
+      workerReadyResolver = null;
+      workerReadyRejecter = null;
+    }
+    if (worker) {
+      worker.terminate();
+      worker = null;
+    }
+    workerReadyPromise = null;
+  }
 
   function onWorkerMessage(m) {
     if (m.type === "ready") {
+      if (workerReadyTimer) {
+        clearTimeout(workerReadyTimer);
+        workerReadyTimer = null;
+      }
       if (workerReadyResolver) workerReadyResolver();
+      workerReadyResolver = null;
+      workerReadyRejecter = null;
       cvStatus.textContent = "OpenCV.js: ready ✓ (worker)";
       setLoading(false);
       return;
     }
     if (m.type === "status") { setLoading(true, m.message); return; }
+    if (m.type === "error" && m.id == null) {
+      failWorker(new Error(m.message || "OpenCV.js failed to initialize"));
+      return;
+    }
     const cb = pendingCallbacks.get(m.id);
     if (!cb) return;
     clearTimeout(cb.t);
@@ -218,17 +253,24 @@
     else cb.resolve(m);
   }
 
-  let workerReadyResolver = null;
-
   function ensureWorker() {
     if (worker) return workerReadyPromise;
-    worker = new Worker("./cv-worker.js");
-    workerReadyPromise = new Promise((resolve) => { workerReadyResolver = resolve; });
+    workerReadyPromise = new Promise((resolve, reject) => {
+      workerReadyResolver = resolve;
+      workerReadyRejecter = reject;
+    });
+    try {
+      worker = new Worker("./cv-worker.js");
+    } catch (e) {
+      failWorker(e);
+      return workerReadyPromise;
+    }
+    workerReadyTimer = setTimeout(() => {
+      failWorker(new Error("Timed out loading OpenCV.js. Check your internet connection and try again."));
+    }, 45000);
     worker.addEventListener("message", (e) => onWorkerMessage(e.data));
     worker.addEventListener("error", (e) => {
-      log("worker error", e);
-      cvStatus.textContent = "OpenCV.js worker: failed";
-      setLoading(false);
+      failWorker(new Error(e.message || "Could not load the OpenCV.js worker"));
     });
     return workerReadyPromise;
   }
@@ -286,6 +328,7 @@
       // thread while we request the camera. The UI stays responsive.
       setLoading(true, "Loading OpenCV.js…");
       const cvPromise = ensureWorker();
+      cvPromise.catch(() => {}); // Camera permission may take longer than worker startup.
 
       const constraints = idealConstraints(resolution.value);
       let stream = null;
@@ -321,9 +364,20 @@
       startMarkerLoop();
     } catch (e) {
       log("camera error", e);
+      if (state.stream) {
+        state.stream.getTracks().forEach((track) => track.stop());
+        state.stream = null;
+      }
+      video.srcObject = null;
+      state.running = false;
+      btnCamera.textContent = "▶ START CAMERA";
+      btnCamera.classList.remove("is-active");
+      btnLock.disabled = true;
+      btnTest.disabled = true;
+      btnRotate.disabled = true;
       setLoading(false);
       setStatus("CAMERA ERROR", "err");
-      setDebug(String(e && e.message ? e.message : e));
+      setDebug("Camera/OpenCV startup failed: " + (e && e.message ? e.message : e) + ". Check your internet connection and retry.");
     }
   }
 
