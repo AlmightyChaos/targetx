@@ -62,6 +62,7 @@
         "minAreaPx": { "type": "number", "minimum": 0 },
         "maxAreaPx": { "type": "number", "minimum": 0 },
         "maxAspectRatio": { "type": "number", "minimum": 1 },
+        "minCircularity": { "type": "number", "minimum": 0, "maximum": 1 },
         "openKernel": { "type": "integer", "minimum": 0 },
         "closeKernel": { "type": "integer", "minimum": 0 },
         "breakTheLine": { "type": "boolean" },

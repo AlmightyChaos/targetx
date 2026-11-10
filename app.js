@@ -78,11 +78,11 @@
     target: { widthMm: 170, heightMm: 170, centerXmm: 85, centerYmm: 85, distanceM: 10, warpWidthPx: 1024, warpHeightPx: 1024 },
     detection: { mode: "hole" },
     laser: {
-      minAreaPx: 8, maxAreaPx: 2500, maxAspectRatio: 2.5,
-      openKernel: 3, closeKernel: 5,
+      minAreaPx: 3, maxAreaPx: 1200, maxAspectRatio: 2.5, minCircularity: 0.28,
+      openKernel: 1, closeKernel: 3,
       breakTheLine: false, spotDiameterMm: 0,
-      red: { hLow1: 0, hHigh1: 12, hLow2: 160, hHigh2: 180, sMin: 110, vMin: 120 },
-      green: { hLow: 35, hHigh: 95, sMin: 90, vMin: 110 },
+      red: { hLow1: 0, hHigh1: 12, hLow2: 160, hHigh2: 180, sMin: 85, vMin: 100 },
+      green: { hLow: 35, hHigh: 95, sMin: 75, vMin: 95 },
     },
     bullet: { caliberMm: 4.5, breakTheLine: true, minHoleAreaPx: 20, maxHoleAreaPx: 3000, maxAspectRatio: 2.6 },
     trigger: { threshold: 0.14, shotDelayMs: 70, cooldownMs: 650, rmsWindow: 96 },
@@ -524,7 +524,12 @@
   /* --------------------------- corner assignment ------------------------- */
   function assignCorners(markers) {
     if (!markers || markers.length < 4) return null;
-    const best = [...markers].sort((a, b) => b.area - a.area).slice(0, 4);
+    const distinctCodes = new Map();
+    for (const marker of markers) {
+      const existing = distinctCodes.get(marker.code);
+      if (!existing || marker.area > existing.area) distinctCodes.set(marker.code, marker);
+    }
+    const best = [...distinctCodes.values()].sort((a, b) => b.area - a.area).slice(0, 4);
     const cx = best.reduce((s, m) => s + m.center[0], 0) / 4;
     const cy = best.reduce((s, m) => s + m.center[1], 0) / 4;
     const ordered = best
@@ -554,7 +559,7 @@
     };
   }
 
-  const LEARN_KEY = "targetx.markers.v1";
+  const LEARN_KEY = "targetx.markers.v2";
   function loadLearnedMarkers() {
     if (state.learnedMarkers !== null) return state.learnedMarkers.size ? state.learnedMarkers : null;
     try {
@@ -599,7 +604,8 @@
     if (!worker || !state.stream) return;
     const frame = readFrameBuf(DETECT_SCALE_MAX);
     if (!frame) return;
-    const scaleBack = video.videoWidth / frame.width;
+    const scaleBackX = video.videoWidth / frame.width;
+    const scaleBackY = video.videoHeight / frame.height;
 
     let res;
     try {
@@ -614,8 +620,8 @@
     const markers = (res.markers || []).map((m) => ({
       code: m.code,
       area: m.area,
-      center: [m.center[0] * scaleBack, m.center[1] * scaleBack],
-      corners: m.corners.map((c) => [c[0] * scaleBack, c[1] * scaleBack]),
+      center: [m.center[0] * scaleBackX, m.center[1] * scaleBackY],
+      corners: m.corners.map((c) => [c[0] * scaleBackX, c[1] * scaleBackY]),
     }));
     state.lastMarkers = markers;
 
@@ -799,7 +805,6 @@
     const cfg = state.cfg;
     const t = cfg.target;
     const isLaser = !!hole.color;
-    const l = cfg.laser || {};
     const b = cfg.bullet;
     const pxPerMmX = t.warpWidthPx / t.widthMm;
     const pxPerMmY = t.warpHeightPx / t.heightMm;

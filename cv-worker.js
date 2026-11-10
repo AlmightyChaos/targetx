@@ -326,17 +326,18 @@ function greenRanges(green) {
 
 function spotsForColor(hsv, ranges, color, laser) {
   let work = laserMask(hsv, ranges);
-  work = morphMask(work, cv.MORPH_OPEN, laser.openKernel ?? 3);
-  work = morphMask(work, cv.MORPH_CLOSE, laser.closeKernel ?? 5);
+  work = morphMask(work, cv.MORPH_OPEN, laser.openKernel ?? 1);
+  work = morphMask(work, cv.MORPH_CLOSE, laser.closeKernel ?? 3);
 
   const contours = new cv.MatVector();
   const hierarchy = new cv.Mat();
   cv.findContours(work, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
   const spots = [];
-  const minA = laser.minAreaPx ?? 8;
-  const maxA = laser.maxAreaPx ?? 2500;
+  const minA = laser.minAreaPx ?? 3;
+  const maxA = laser.maxAreaPx ?? 1200;
   const maxAspect = laser.maxAspectRatio ?? 2.5;
+  const minCircularity = laser.minCircularity ?? 0.28;
 
   for (let i = 0; i < contours.size(); i++) {
     const cnt = contours.get(i);
@@ -345,6 +346,9 @@ function spotsForColor(hsv, ranges, color, laser) {
     const rect = cv.boundingRect(cnt);
     const aspect = rect.width > rect.height ? rect.width / rect.height : rect.height / rect.width;
     if (aspect > maxAspect) { cnt.delete(); continue; }
+    const perimeter = cv.arcLength(cnt, true);
+    const circularity = perimeter > 0 ? (4 * Math.PI * area) / (perimeter * perimeter) : 0;
+    if (circularity < minCircularity) { cnt.delete(); continue; }
     const m = cv.moments(cnt);
     spots.push({
       xPx: m.m10 / (m.m00 || 1),
@@ -353,6 +357,7 @@ function spotsForColor(hsv, ranges, color, laser) {
       hPx: rect.height,
       areaPx: area,
       color,
+      quality: circularity * Math.sqrt(area),
     });
     cnt.delete();
   }
@@ -379,7 +384,7 @@ function findLaserSpots(rgba, laserCfg, mode) {
     spots = spots.concat(spotsForColor(hsv, greenRanges(laser.green), "green", laser));
   }
   hsv.delete();
-  spots.sort((a, b) => b.areaPx - a.areaPx);
+  spots.sort((a, b) => b.quality - a.quality);
   return spots;
 }
 

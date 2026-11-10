@@ -64,7 +64,8 @@ Edit [`target_config.json`](./target_config.json):
   aspect-ratio filters.
 - `detection.mode` — `hole` (default), `red`, `green`, or `both`.
 - `laser` — HSV color thresholds, spot filters, and optional break-the-line
-  spot diameter for red/green laser scoring.
+  spot diameter for red/green laser scoring. Small laser spots are preserved
+  by default; contour area, aspect ratio, and circularity filter out noise.
 - `trigger` — audio threshold, shot delay, cooldown.
 - `morph` — diff blur/threshold/morphology knobs.
 

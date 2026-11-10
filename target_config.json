@@ -40,11 +40,12 @@
     "maxAspectRatio": 2.6
   },
   "laser": {
-    "minAreaPx": 8,
-    "maxAreaPx": 2500,
+    "minAreaPx": 3,
+    "maxAreaPx": 1200,
     "maxAspectRatio": 2.5,
-    "openKernel": 3,
-    "closeKernel": 5,
+    "minCircularity": 0.28,
+    "openKernel": 1,
+    "closeKernel": 3,
     "breakTheLine": false,
     "spotDiameterMm": 0,
     "red": {
@@ -52,14 +53,14 @@
       "hHigh1": 12,
       "hLow2": 160,
       "hHigh2": 180,
-      "sMin": 110,
-      "vMin": 120
+      "sMin": 85,
+      "vMin": 100
     },
     "green": {
       "hLow": 35,
       "hHigh": 95,
-      "sMin": 90,
-      "vMin": 110
+      "sMin": 75,
+      "vMin": 95
     }
   },
   "trigger": {
