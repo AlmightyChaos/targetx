@@ -35,9 +35,10 @@
   "bullet": {
     "caliberMm": 4.5,
     "breakTheLine": true,
-    "minHoleAreaPx": 20,
+    "minHoleAreaPx": 6,
     "maxHoleAreaPx": 3000,
-    "maxAspectRatio": 2.6
+    "maxAspectRatio": 2.6,
+    "minCircularity": 0.12
   },
   "laser": {
     "minAreaPx": 3,
@@ -76,7 +77,7 @@
     "thresholdMethod": "otsu",
     "fixedThreshold": 28,
     "closeKernel": 3,
-    "diffScale": 0.6,
+    "diffScale": 1,
     "darknessMax": 120
   }
 }

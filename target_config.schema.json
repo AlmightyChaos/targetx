@@ -53,7 +53,8 @@
         "breakTheLine": { "type": "boolean" },
         "minHoleAreaPx": { "type": "number", "minimum": 0 },
         "maxHoleAreaPx": { "type": "number", "minimum": 0 },
-        "maxAspectRatio": { "type": "number", "minimum": 1 }
+        "maxAspectRatio": { "type": "number", "minimum": 1 },
+        "minCircularity": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     },
     "laser": {

@@ -16,8 +16,9 @@ iPhone (Safari / Chrome) and Android.
    RMS/peak. A gunshot peak waits ~70 ms (muzzle blast / target oscillation
    settle), then captures the current frame.
 4. **Diff & score** — the captured frame is warped to a flat 1024×1024 view,
-   compared against the previous baseline (`absdiff → GaussianBlur → Otsu →
-   morphological close → findContours`), filtered by area/aspect ratio, and
+   compared against the previous baseline (current-frame darkening →
+   GaussianBlur → Otsu → morphological close → findContours), filtered by
+   area/aspect ratio/circularity, and
    the centroid is converted to physical mm and scored against the configured
    rings (with optional break-the-line bullet-radius compensation).
     In **Red laser**, **Green laser**, or **Red + green lasers** mode, the same
@@ -61,7 +62,7 @@ Edit [`target_config.json`](./target_config.json):
   and shooting distance (for MOA).
 - `rings` — innermost-first list of `{ label, diameterMm, score }`.
 - `bullet` — caliber (mm) for break-the-line compensation and hole-area /
-  aspect-ratio filters.
+  aspect-ratio/circularity filters.
 - `detection.mode` — `hole` (default), `red`, `green`, or `both`.
 - `laser` — HSV color thresholds, spot filters, and optional break-the-line
   spot diameter for red/green laser scoring. Small laser spots are preserved
@@ -123,5 +124,6 @@ the current string.
   network connection and a few seconds.
 - The audio threshold must be tuned to your firearm/range (use the
   **⚙ sensitivity** slider). For dry testing press **⦿ TEST**.
-- The diff pipeline intentionally scores the single largest new blob per
-  shot; very tight double-taps within the cooldown window may merge.
+- The diff pipeline records each distinct new hole found in a captured frame.
+  Audio triggers inside the configured cooldown window (650 ms by default)
+  are still treated as one shot.
