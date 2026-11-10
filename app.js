@@ -9,7 +9,7 @@
 (() => {
   "use strict";
 
-  const DETECT_SCALE_MAX = 640; // downscale long edge for cheap detection
+  const DETECT_SCALE_MAX = 960; // preserve enough marker pixels for reliable long-range detection
 
   /* ------------------------------ DOM refs ------------------------------- */
   const $ = (id) => document.getElementById(id);

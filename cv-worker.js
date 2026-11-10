@@ -21,7 +21,7 @@
 /* --------------------------- constants --------------------------- */
 const MARKER_CELLS = 6;      // 4x4 dict + 1-cell black border each side
 const MARKER_CELL_PX = 8;    // sampling resolution per cell
-const MIN_MARKER_AREA = 120; // px^2
+const MIN_MARKER_AREA = 40; // px^2; allow corner markers to be decoded farther away
 
 let cv = null;
 let baseline = null; // grayscale warped Mat
@@ -71,7 +71,7 @@ function detectMarkers(srcGray) {
   for (let i = 0; i < contours.size(); i++) {
     const cnt = contours.get(i);
     const perimeter = cv.arcLength(cnt, true);
-    if (perimeter < 40) { cnt.delete(); continue; }
+    if (perimeter < 24) { cnt.delete(); continue; }
     const approx = new cv.Mat();
     cv.approxPolyDP(cnt, approx, 0.04 * perimeter, true);
     if (approx.rows !== 4 || !cv.isContourConvex(approx)) { approx.delete(); cnt.delete(); continue; }

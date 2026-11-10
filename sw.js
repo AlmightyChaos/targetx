@@ -1,5 +1,5 @@
 /* TargetX service worker — offline-first cache for PWA installability. */
-const CACHE = "targetx-v10";
+const CACHE = "targetx-v11";
 const ASSETS = [
   "./",
   "./index.html",
