@@ -30,6 +30,7 @@
 
   const btnCamera = $("btnCamera");
   const btnLock = $("btnLock");
+  const btnCenter = $("btnCenter");
   const btnTest = $("btnTest");
   const btnRotate = $("btnRotate");
   const btnClear = $("btnClear");
@@ -59,6 +60,8 @@
     locked: false,
     H: null,             // video(full-res) -> warped, 3x3 as number[9]
     Hinv: null,          // warped -> video(full-res), 3x3 as number[9]
+    targetCenter: null,  // detected bullseye and scale in warped pixels
+    pickingCenter: false,
     hasBaseline: false,  // worker holds a diff baseline
     shots: [],
     rotationOffset: 0,
@@ -68,10 +71,12 @@
     cfg: null,
     lastMarkers: [],     // markers in full-res video coords
     overlayHoles: [],
+    liveLaserSpot: null,
+    laserCandidates: [],
     lockCenters: null,   // last assigned marker centers
     lockMissSince: null,
     highlightCount: 10,  // latest N shots highlighted + used for grouping
-    mode: "hole",        // hole | red | green | both (laser)
+    mode: "hole",        // hole | red | green
   };
 
   const DEFAULT_CFG = {
@@ -194,7 +199,7 @@
     caliberVal.textContent = state.cfg.bullet.caliberMm.toFixed(1);
     breakLine.checked = !!state.cfg.bullet.breakTheLine;
     const configuredMode = state.cfg.detection && state.cfg.detection.mode;
-    state.mode = ["hole", "red", "green", "both"].includes(configuredMode) ? configuredMode : "hole";
+    state.mode = ["hole", "red", "green"].includes(configuredMode) ? configuredMode : "hole";
     if (detectionMode) detectionMode.value = state.mode;
   }
 
@@ -350,6 +355,7 @@
       btnCamera.textContent = "■ STOP CAMERA";
       btnCamera.classList.add("is-active");
       btnLock.disabled = false;
+      btnCenter.disabled = true;
       btnTest.disabled = false;
       btnRotate.disabled = false;
 
@@ -375,6 +381,7 @@
       btnCamera.textContent = "▶ START CAMERA";
       btnCamera.classList.remove("is-active");
       btnLock.disabled = true;
+      btnCenter.disabled = true;
       btnTest.disabled = true;
       btnRotate.disabled = true;
       setLoading(false);
@@ -389,10 +396,17 @@
       state.stream = null;
     }
     markerLoopRunning = false;
+    stopLaserTracking();
+    state.pickingCenter = false;
+    overlay.classList.remove("is-picking-center");
+    btnCenter.disabled = true;
     video.srcObject = null;
     state.locked = false;
     state.H = null;
     state.Hinv = null;
+    state.targetCenter = null;
+    state.liveLaserSpot = null;
+    state.laserCandidates = [];
     state.hasBaseline = false;
     state.lockCenters = null;
     state.lockMissSince = null;
@@ -464,7 +478,9 @@
     const now = performance.now();
     if (now - state.lastShotAt < cfg.cooldownMs) return;
     state.lastShotAt = now;
-    setDebug("Audio trigger detected — capturing target frame.");
+    setDebug(state.mode === "hole"
+      ? "Audio trigger detected — capturing target frame."
+      : "Shot sound detected — checking recent " + state.mode + " laser frames.");
     captureShot();
   }
 
@@ -593,7 +609,7 @@
     if (markerLoopRunning) return;
     markerLoopRunning = true;
     while (state.stream && markerLoopRunning) {
-      await sleep(200);
+      await sleep(state.locked && state.mode !== "hole" ? 800 : 200);
       if (detecting) continue;
       detecting = true;
       try { await runMarkerDetection(); } catch (e) { /* transient */ }
@@ -638,12 +654,16 @@
       const centers = [assignment.tl.center, assignment.tr.center, assignment.br.center, assignment.bl.center];
       if (!wasLocked) {
         state.hasBaseline = false;
+        state.targetCenter = null;
         callWorker("clear", {}).catch(() => {});
-        primeBaseline();
+        calibrateTargetCenter();
+        if (state.mode === "hole") primeBaseline();
       }
       state.lockCenters = centers;
 
       state.locked = true;
+      btnCenter.disabled = false;
+      if (!wasLocked && state.mode !== "hole") startLaserTracking();
       alignHint.classList.add("is-hidden");
       if (!wasLocked) {
         setStatus("TARGET LOCKED", "locked");
@@ -655,6 +675,7 @@
       if (state.lockMissSince === null) state.lockMissSince = performance.now();
       if (performance.now() - state.lockMissSince >= LOCK_LOSS_GRACE_MS) {
         state.locked = false;
+        btnCenter.disabled = true;
         state.lockMissSince = null;
         state.hasBaseline = false;
         state.lockCenters = null;
@@ -666,6 +687,41 @@
     }
 
     drawMarkers();
+  }
+
+  let targetCalibrationPromise = null;
+  async function calibrateTargetCenter() {
+    if (targetCalibrationPromise) return targetCalibrationPromise;
+    if (!worker || !state.stream || !state.H || !state.cfg) return;
+    targetCalibrationPromise = (async () => {
+      try {
+        const frame = readFrameBuf();
+        if (!frame) return;
+        const result = await callWorker("calibrate", {
+          buf: frame.buf,
+          width: frame.width,
+          height: frame.height,
+          H: [...state.H],
+          warpW: state.cfg.target.warpWidthPx,
+          warpH: state.cfg.target.warpHeightPx,
+          target: state.cfg.target,
+          rings: state.cfg.rings,
+        }, [frame.buf]);
+        if (!state.targetCenter || !state.targetCenter.manual) state.targetCenter = result.center || null;
+        drawMarkers();
+        setDebug(state.targetCenter
+          ? (state.targetCenter.manual
+            ? "Bullseye center set manually."
+            : "Bullseye found automatically (confidence " + state.targetCenter.confidence.toFixed(2) + ").")
+          : "Bullseye not found. Keep the complete printed rings visible and relock the target.");
+      } catch (e) {
+        log("target center calibration error", e);
+        setDebug("Could not locate bullseye: " + e.message);
+      } finally {
+        targetCalibrationPromise = null;
+      }
+    })();
+    return targetCalibrationPromise;
   }
 
   // Warp the current frame and store it as the diff baseline (no diff, no
@@ -703,11 +759,132 @@
     return baselinePromise;
   }
 
+  let laserTrackActive = false;
+  let laserFrameBusy = false;
+  let lastLaserFrameAt = 0;
+  let lastLaserVideoTime = -1;
+  function startLaserTracking() {
+    if (laserTrackActive || !state.stream || !state.locked || state.mode === "hole") return;
+    laserTrackActive = true;
+    requestAnimationFrame(laserTrackingTick);
+  }
+
+  function stopLaserTracking() {
+    laserTrackActive = false;
+    state.liveLaserSpot = null;
+  }
+
+  function scaleHomography(H, scaleX, scaleY) {
+    return [
+      H[0] * scaleX, H[1] * scaleY, H[2],
+      H[3] * scaleX, H[4] * scaleY, H[5],
+      H[6] * scaleX, H[7] * scaleY, H[8],
+    ];
+  }
+
+  function laserTrackingTick() {
+    if (!laserTrackActive || !state.stream || !state.locked || state.mode === "hole") {
+      stopLaserTracking();
+      return;
+    }
+    const now = performance.now();
+    if (!laserFrameBusy && !detecting && now - lastLaserFrameAt >= 25 && video.currentTime !== lastLaserVideoTime) {
+      const frame = readFrameBuf(DETECT_SCALE_MAX);
+      if (frame) {
+        const scaleX = video.videoWidth / frame.width;
+        const scaleY = video.videoHeight / frame.height;
+        const jobMode = state.mode;
+        const H = scaleHomography(state.H, scaleX, scaleY);
+        laserFrameBusy = true;
+        lastLaserFrameAt = now;
+        lastLaserVideoTime = video.currentTime;
+        callWorker("laserFrame", {
+          buf: frame.buf,
+          width: frame.width,
+          height: frame.height,
+          H,
+          warpW: 512,
+          warpH: 512,
+          mode: jobMode,
+          laser: state.cfg.laser,
+        }, [frame.buf]).then((result) => {
+          const timestamp = performance.now();
+          const spot = (result.spots || [])[0];
+          if (laserTrackActive && state.stream && spot && jobMode === state.mode) {
+            const candidate = {
+              xPx: spot.xPx * state.cfg.target.warpWidthPx / 512,
+              yPx: spot.yPx * state.cfg.target.warpHeightPx / 512,
+              color: spot.color,
+              quality: spot.quality,
+              time: timestamp,
+            };
+            state.laserCandidates.push(candidate);
+            state.laserCandidates = state.laserCandidates.filter((item) => timestamp - item.time < 700).slice(-40);
+            state.liveLaserSpot = candidate;
+          } else if (state.liveLaserSpot && timestamp - state.liveLaserSpot.time > 250) {
+            state.liveLaserSpot = null;
+          }
+          drawMarkers();
+        }).catch((e) => {
+          log("laser frame error", e);
+        }).finally(() => {
+          laserFrameBusy = false;
+        });
+      }
+    }
+    requestAnimationFrame(laserTrackingTick);
+  }
+
+  async function captureLaserShot() {
+    state.processing = true;
+    const triggerTime = performance.now();
+    try {
+      if (targetCalibrationPromise) await targetCalibrationPromise;
+      await sleep(100);
+      const latestTime = performance.now();
+      const candidates = state.laserCandidates.filter((candidate) =>
+        candidate.time >= triggerTime - 500 && candidate.time <= latestTime
+      );
+      candidates.sort((a, b) =>
+        Math.abs(a.time - triggerTime) - Math.abs(b.time - triggerTime)
+        || b.quality - a.quality
+      );
+      const spot = candidates[0];
+      if (!spot) {
+        setDebug("Shot sound detected, but no " + state.mode + " laser spot appeared in the recent camera frames.");
+        return;
+      }
+      if (!state.targetCenter) {
+        setDebug("Laser found, but bullseye center is not calibrated. Find the printed rings or tap SET CENTER.");
+        return;
+      }
+      const scoring = {
+        target: { ...state.cfg.target },
+        bullet: { ...state.cfg.bullet },
+        laser: state.cfg.laser,
+        rings: state.cfg.rings,
+      };
+      const shot = scoreHole(spot, scoring);
+      registerShot(shot);
+      drawShotPreview(shot, spot, state.Hinv);
+      state.laserCandidates = state.laserCandidates.filter((item) => item.time > spot.time);
+      vibrate(60);
+    } catch (e) {
+      log("laser shot capture error", e);
+      setDebug("Laser capture error: " + e.message);
+    } finally {
+      state.processing = false;
+    }
+  }
+
   /* --------------------------- shot pipeline ----------------------------- */
   async function captureShot(simulate) {
     if (state.processing) {
-      setDebug("Shot trigger skipped — target frame is still processing. Wait before the next shot.");
-      return;
+      if (!simulate && state.mode === "hole" && baselinePromise) await baselinePromise;
+      if (state.processing) {
+        setDebug("Shot trigger skipped — target frame is still processing. Wait before the next shot.");
+        return;
+      }
     }
     if (!worker || !state.stream) return;
     if (!state.locked || !state.H) {
@@ -715,9 +892,13 @@
       beep(300, 0.12, "square", 0.06);
       return;
     }
+    if (state.mode !== "hole" && !simulate) {
+      return captureLaserShot();
+    }
     state.processing = true;
     try {
       if (!simulate) await sleep(state.cfg.trigger.shotDelayMs);
+      if (state.mode === "hole" && targetCalibrationPromise) await targetCalibrationPromise;
 
       const frame = readFrameBuf();
       if (!frame) return;
@@ -750,6 +931,11 @@
       if (mode === "hole") state.hasBaseline = true;
       const holes = res.holes || [];
 
+      if (holes.length && !state.targetCenter) {
+        setDebug("New hole found, but bullseye center is not calibrated. Find the printed rings or tap SET CENTER before scoring.");
+        return;
+      }
+
       if (holes.length) {
         const detectedShots = mode === "hole" ? holes : holes.slice(0, 1);
         for (const hole of detectedShots) {
@@ -764,7 +950,7 @@
           ? (state.hasBaseline
             ? "Shot captured — no new dark hole found. Check focus, lighting, and target baseline."
             : "Shot captured — baseline was not ready. Lock the target again.")
-          : "Captured — no " + (mode === "both" ? "red/green" : mode) + " laser dot detected.");
+          : "Captured — no " + mode + " laser dot detected.");
       }
     } catch (e) {
       log("shot pipeline error", e);
@@ -785,9 +971,9 @@
       return;
     }
     const t = state.cfg.target;
-    const pxPerMm = t.warpWidthPx / t.widthMm;
-    const cx = t.warpWidthPx * (t.centerXmm / t.widthMm);
-    const cy = t.warpHeightPx * (t.centerYmm / t.heightMm);
+    const pxPerMm = state.targetCenter ? state.targetCenter.pxPerMmX : t.warpWidthPx / t.widthMm;
+    const cx = state.targetCenter ? state.targetCenter.xPx : t.warpWidthPx * (t.centerXmm / t.widthMm);
+    const cy = state.targetCenter ? state.targetCenter.yPx : t.warpHeightPx * (t.centerYmm / t.heightMm);
 
     // Random radius inside the scoring area (~5..65 mm from center).
     const ang = Math.random() * Math.PI * 2;
@@ -814,10 +1000,12 @@
     const isLaser = !!hole.color;
     const l = cfg.laser || {};
     const b = cfg.bullet;
-    const pxPerMmX = t.warpWidthPx / t.widthMm;
-    const pxPerMmY = t.warpHeightPx / t.heightMm;
-    const mmX = hole.xPx / pxPerMmX;
-    const mmY = hole.yPx / pxPerMmY;
+    const pxPerMmX = state.targetCenter ? state.targetCenter.pxPerMmX : t.warpWidthPx / t.widthMm;
+    const pxPerMmY = state.targetCenter ? state.targetCenter.pxPerMmY : t.warpHeightPx / t.heightMm;
+    const centerXpx = state.targetCenter ? state.targetCenter.xPx : t.warpWidthPx * (t.centerXmm / t.widthMm);
+    const centerYpx = state.targetCenter ? state.targetCenter.yPx : t.warpHeightPx * (t.centerYmm / t.heightMm);
+    const mmX = t.centerXmm + (hole.xPx - centerXpx) / pxPerMmX;
+    const mmY = t.centerYmm + (hole.yPx - centerYpx) / pxPerMmY;
     const dist = Math.hypot(mmX - t.centerXmm, mmY - t.centerYmm);
 
     // For lasers we score the center of the spot; for bullets we can apply
@@ -919,11 +1107,29 @@
       overlayCtx.stroke();
       overlayCtx.setLineDash([]);
 
-      const ctr = mapWarpedToScreen(t.warpWidthPx * (t.centerXmm / t.widthMm), t.warpHeightPx * (t.centerYmm / t.heightMm));
-      overlayCtx.strokeStyle = "rgba(56,224,160,0.4)";
-      overlayCtx.lineWidth = 1;
+      const center = state.targetCenter || {
+        xPx: t.warpWidthPx * (t.centerXmm / t.widthMm),
+        yPx: t.warpHeightPx * (t.centerYmm / t.heightMm),
+      };
+      const ctr = mapWarpedToScreen(center.xPx, center.yPx);
+      overlayCtx.strokeStyle = state.targetCenter ? "rgba(56,224,160,0.95)" : "rgba(255,176,32,0.6)";
+      overlayCtx.lineWidth = 2;
       overlayCtx.beginPath();
-      overlayCtx.arc(ctr[0], ctr[1], 6, 0, Math.PI * 2);
+      overlayCtx.arc(ctr[0], ctr[1], 8, 0, Math.PI * 2);
+      overlayCtx.moveTo(ctr[0] - 12, ctr[1]);
+      overlayCtx.lineTo(ctr[0] + 12, ctr[1]);
+      overlayCtx.moveTo(ctr[0], ctr[1] - 12);
+      overlayCtx.lineTo(ctr[0], ctr[1] + 12);
+      overlayCtx.stroke();
+    }
+
+    if (state.liveLaserSpot && state.Hinv) {
+      const spot = state.liveLaserSpot;
+      const p = mapWarpedToScreen(spot.xPx, spot.yPx);
+      overlayCtx.strokeStyle = spot.color === "red" ? "#ff504f" : "#40ff80";
+      overlayCtx.lineWidth = 2;
+      overlayCtx.beginPath();
+      overlayCtx.arc(p[0], p[1], 10, 0, Math.PI * 2);
       overlayCtx.stroke();
     }
 
@@ -986,10 +1192,41 @@
     runMarkerDetection();
   });
 
+  btnCenter.addEventListener("click", () => {
+    if (!state.locked || !state.H) return;
+    state.pickingCenter = true;
+    overlay.classList.add("is-picking-center");
+    setDebug("Tap the center of the printed bullseye in the camera view.");
+  });
+
+  overlay.addEventListener("click", (event) => {
+    if (!state.pickingCenter || !state.H) return;
+    const rect = overlay.getBoundingClientRect();
+    const scale = Math.max(rect.width / video.videoWidth, rect.height / video.videoHeight);
+    const offsetX = (rect.width - video.videoWidth * scale) / 2;
+    const offsetY = (rect.height - video.videoHeight * scale) / 2;
+    const x = (event.clientX - rect.left - offsetX) / scale;
+    const y = (event.clientY - rect.top - offsetY) / scale;
+    const [xPx, yPx] = applyH(state.H, x, y);
+    state.targetCenter = {
+      xPx,
+      yPx,
+      pxPerMmX: state.cfg.target.warpWidthPx / state.cfg.target.widthMm,
+      pxPerMmY: state.cfg.target.warpHeightPx / state.cfg.target.heightMm,
+      confidence: 1,
+      manual: true,
+    };
+    state.pickingCenter = false;
+    overlay.classList.remove("is-picking-center");
+    setDebug("Bullseye center set manually. Target scale still uses configured dimensions.");
+    drawMarkers();
+  });
+
   btnClear.addEventListener("click", () => {
     state.shots = [];
     state.hasBaseline = false;
     state.overlayHoles = [];
+    state.laserCandidates = [];
     callWorker("clear", {}).catch(() => {});
     readShots.textContent = "0";
     readLastShot.textContent = "—";
@@ -1019,8 +1256,12 @@
     if (state.cfg) state.cfg.detection = { ...(state.cfg.detection || {}), mode: state.mode };
     state.hasBaseline = false;
     callWorker("clear", {}).catch(() => {});
+    state.laserCandidates = [];
+    state.liveLaserSpot = null;
+    stopLaserTracking();
     if (state.mode === "hole" && state.locked) primeBaseline();
-    setDebug(state.mode === "hole" ? "Mode: bullet hole detection" : "Mode: " + state.mode + " laser detection");
+    else if (state.mode !== "hole" && state.locked) startLaserTracking();
+    setDebug(state.mode === "hole" ? "Mode: bullet hole detection" : "Tracking " + state.mode + " laser continuously.");
   });
 
   recentShots.addEventListener("input", () => {

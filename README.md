@@ -13,21 +13,21 @@ iPhone (Safari / Chrome) and Android.
    detected (dictionary-agnostic bit decoder) and used to compute a
    perspective homography. The live overlay draws a green alignment box.
 3. **Audio trigger** — a Web Audio `AnalyserNode` watches microphone
-   RMS/peak. A gunshot peak waits ~70 ms (muzzle blast / target oscillation
-   settle), then captures the current frame.
-4. **Diff & score** — the captured frame is warped to a flat 1024×1024 view,
-   compared against the previous baseline (current-frame darkening →
-   GaussianBlur → Otsu → morphological close → findContours), filtered by
-   area/aspect ratio/circularity, and
-   the centroid is converted to physical mm and scored against the configured
-   rings (with optional break-the-line bullet-radius compensation).
-    In **Red laser**, **Green laser**, or **Red + green lasers** mode, the same
-    capture, target alignment, ring scoring, and grouping flow is used, but the
-    warped frame is thresholded in HSV for bright red/green spots instead of
-    comparing bullet-hole differences. Laser shots are sampled on the normal
-    audio trigger; keep the laser spot visible through the configured shot
-    delay. Detection thresholds and spot-size scoring options are configurable
-    in `target_config.json`.
+   RMS/peak. In bullet-hole mode, a gunshot peak waits ~70 ms for target
+   movement to settle before capturing. In laser mode, sound selects among
+   recently tracked spots instead of waiting for the laser to remain visible.
+4. **Center calibration & scoring** — after marker lock, the app searches the
+   rectified target for concentric scoring rings and estimates the bullseye
+   center. Pixel-to-mm scale uses the configured target dimensions. If the
+   rings cannot be found, tap **◎ SET CENTER** and select the printed center.
+5. **Bullet holes** — compare the captured frame with the previous baseline
+   using current-frame darkening, blur, threshold, morphology, and contours.
+   The detected centroid is scored relative to the calibrated bullseye.
+6. **Red or green laser** — continuously sample camera frames for the
+   selected color, retain recent spot positions, and associate a spot with the
+   microphone trigger. This does not depend on the spot still being visible
+   after the shot. Pulses shorter than the camera exposure/frame interval can
+   still be missed; verify behavior with the actual camera and laser.
 
 ## Printing the target
 
@@ -61,9 +61,12 @@ Edit [`target_config.json`](./target_config.json):
 - `target` — physical width/height (mm), bullseye center, warp resolution,
   and shooting distance (for MOA).
 - `rings` — innermost-first list of `{ label, diameterMm, score }`.
+- Automatic bullseye-center finding expects the printed ring diameters in
+  `rings` to match the target; the manual center control is available when it
+  cannot find enough ring contours.
 - `bullet` — caliber (mm) for break-the-line compensation and hole-area /
   aspect-ratio filters.
-- `detection.mode` — `hole` (default), `red`, `green`, or `both`.
+- `detection.mode` — `hole` (default), `red`, or `green`.
 - `laser` — HSV color thresholds, spot filters, and optional break-the-line
   spot diameter for red/green laser scoring. Small laser spots are preserved
   by default; contour area, aspect ratio, and circularity filter out noise.
@@ -124,6 +127,5 @@ the current string.
   network connection and a few seconds.
 - The audio threshold must be tuned to your firearm/range (use the
   **⚙ sensitivity** slider). For dry testing press **⦿ TEST**.
-- The diff pipeline records new holes found in each captured frame. Audio
-  triggers inside the configured cooldown window (650 ms by default) are
-  treated as one shot; wait for frame processing before the next shot.
+- Audio triggers inside the configured cooldown window (650 ms by default)
+  are treated as one shot.

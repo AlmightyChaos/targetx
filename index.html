@@ -64,6 +64,7 @@
       <div class="controls">
         <button id="btnCamera" class="btn btn--primary">▶ START CAMERA</button>
         <button id="btnLock" class="btn btn--accent" disabled>◈ LOCK TARGET</button>
+        <button id="btnCenter" class="btn btn--ghost" disabled>◎ SET CENTER</button>
         <button id="btnTest" class="btn btn--ghost" disabled title="Simulate a shot in the selected detection mode">🎯 SIMULATE</button>
         <button id="btnRotate" class="btn btn--ghost" disabled title="Rotate corner assignment 90°">↻</button>
         <button id="btnClear" class="btn btn--danger" title="Clear shot history">✕</button>
@@ -83,7 +84,6 @@
             <option value="hole">Bullet holes</option>
             <option value="red">Red laser</option>
             <option value="green">Green laser</option>
-            <option value="both">Red + green lasers</option>
           </select>
         </label>
         <label class="field">
@@ -127,6 +127,6 @@
   <!-- OpenCV.js (WebAssembly) is loaded by app.js inside a Web Worker.
        The ?v=N query defeats stale service-worker and HTTP caches on
        already-installed devices so they fetch the latest build on reload. -->
-  <script src="./app.js?v=17" defer></script>
+  <script src="./app.js?v=18" defer></script>
 </body>
 </html>

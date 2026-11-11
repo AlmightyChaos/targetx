@@ -30,6 +30,8 @@ const pending = new Map(); // id -> resolve/reject
 self.onmessage = (e) => {
   const msg = e.data;
   if (msg.type === "detect") handleDetect(msg);
+  else if (msg.type === "calibrate") handleCalibrate(msg);
+  else if (msg.type === "laserFrame") handleLaserFrame(msg);
   else if (msg.type === "capture") handleCapture(msg);
   else if (msg.type === "clear") handleClear(msg);
 };
@@ -377,15 +379,109 @@ function findLaserSpots(rgba, laserCfg, mode) {
   rgb.delete();
 
   let spots = [];
-  if (mode === "red" || mode === "both") {
+  if (mode === "red") {
     spots = spots.concat(spotsForColor(hsv, redRanges(laser.red), "red", laser));
   }
-  if (mode === "green" || mode === "both") {
+  if (mode === "green") {
     spots = spots.concat(spotsForColor(hsv, greenRanges(laser.green), "green", laser));
   }
   hsv.delete();
   spots.sort((a, b) => b.quality - a.quality);
   return spots;
+}
+
+function detectTargetCenter(gray, target, rings) {
+  const view = new cv.Mat();
+  cv.resize(gray, view, new cv.Size(512, 512), 0, 0, cv.INTER_AREA);
+  const pixels = view.data;
+  const sample = (x, y) => {
+    const px = Math.round(x);
+    const py = Math.round(y);
+    if (px < 0 || px >= 512 || py < 0 || py >= 512) return null;
+    return pixels[py * 512 + px];
+  };
+  const evaluate = (cx, cy, angleCount) => {
+    let totalContrast = 0;
+    let totalCoverage = 0;
+    let supportedRings = 0;
+    let ringCount = 0;
+
+    for (const ring of rings) {
+      const r = ring.diameterMm / target.widthMm * 256;
+      if (r < 5) continue;
+      let contrast = 0;
+      let validAngles = 0;
+      for (let angle = 0; angle < angleCount; angle++) {
+        const theta = angle * Math.PI * 2 / angleCount;
+        const dx = Math.cos(theta), dy = Math.sin(theta);
+        let local = 0;
+        const center = sample(cx + dx * r, cy + dy * r);
+        for (const offset of [2, 3, 4]) {
+          const inner = sample(cx + dx * (r - offset), cy + dy * (r - offset));
+          const outer = sample(cx + dx * (r + offset), cy + dy * (r + offset));
+          if (center !== null && inner !== null && outer !== null) {
+            local = Math.max(local, Math.abs(center - (inner + outer) / 2));
+          }
+        }
+        if (local > 0) {
+          contrast += local;
+          validAngles++;
+        }
+      }
+      const coverage = validAngles / angleCount;
+      if (coverage < 0.45) continue;
+      contrast /= validAngles;
+      ringCount++;
+      totalContrast += contrast * coverage;
+      totalCoverage += coverage;
+      if (contrast >= 18) supportedRings++;
+    }
+
+    const meanContrast = ringCount ? totalContrast / ringCount : 0;
+    const meanCoverage = ringCount ? totalCoverage / ringCount : 0;
+    return {
+      meanContrast,
+      supportedRings,
+      confidence: meanContrast / 255 * Math.min(1, supportedRings / 4) * meanCoverage,
+    };
+  };
+  const expectedX = 512 * (target.centerXmm / target.widthMm);
+  const expectedY = 512 * (target.centerYmm / target.heightMm);
+  const searchRange = 100;
+  let best = null;
+  for (let cy = Math.max(0, expectedY - searchRange); cy <= Math.min(511, expectedY + searchRange); cy += 8) {
+    for (let cx = Math.max(0, expectedX - searchRange); cx <= Math.min(511, expectedX + searchRange); cx += 8) {
+      const candidate = evaluate(cx, cy, 36);
+      if (candidate.supportedRings < 3 || candidate.meanContrast < 18) continue;
+      if (!best || candidate.confidence > best.confidence) best = { cx, cy, ...candidate };
+    }
+  }
+
+  if (best) {
+    let refined = { ...best, ...evaluate(best.cx, best.cy, 72) };
+    for (let dy = -8; dy <= 8; dy++) {
+      for (let dx = -8; dx <= 8; dx++) {
+        const cx = best.cx + dx;
+        const cy = best.cy + dy;
+        const candidate = evaluate(cx, cy, 72);
+        if (candidate.supportedRings >= 3 && candidate.confidence > refined.confidence) {
+          refined = { cx, cy, ...candidate };
+        }
+      }
+    }
+    best = {
+      xPx: refined.cx * gray.cols / 512,
+      yPx: refined.cy * gray.rows / 512,
+      pxPerMmX: gray.cols / target.widthMm,
+      pxPerMmY: gray.rows / target.heightMm,
+      confidence: refined.confidence,
+      supportedRings: refined.supportedRings,
+    };
+    if (best.confidence < 0.08) best = null;
+  }
+
+  view.delete();
+  return best;
 }
 
 /* --------------------------- handlers --------------------------- */
@@ -398,6 +494,41 @@ function handleDetect(msg) {
     const markers = detectMarkers(gray);
     gray.delete();
     reply({ id: msg.id, type: "detect", markers });
+  } catch (e) {
+    reply({ id: msg.id, type: "error", message: String(e && e.message ? e.message : e) });
+  }
+}
+
+function handleCalibrate(msg) {
+  try {
+    const src = rgbaMatFromBuffer(msg.buf, msg.width, msg.height);
+    const H = cv.matFromArray(3, 3, cv.CV_64FC1, msg.H);
+    const warped = new cv.Mat();
+    cv.warpPerspective(src, warped, H, new cv.Size(msg.warpW, msg.warpH), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(0, 0, 0, 0));
+    const gray = new cv.Mat();
+    cv.cvtColor(warped, gray, cv.COLOR_RGBA2GRAY);
+    const center = detectTargetCenter(gray, msg.target, msg.rings);
+    gray.delete();
+    warped.delete();
+    H.delete();
+    src.delete();
+    reply({ id: msg.id, type: "calibrate", center });
+  } catch (e) {
+    reply({ id: msg.id, type: "error", message: String(e && e.message ? e.message : e) });
+  }
+}
+
+function handleLaserFrame(msg) {
+  try {
+    const src = rgbaMatFromBuffer(msg.buf, msg.width, msg.height);
+    const H = cv.matFromArray(3, 3, cv.CV_64FC1, msg.H);
+    const warped = new cv.Mat();
+    cv.warpPerspective(src, warped, H, new cv.Size(msg.warpW, msg.warpH), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(0, 0, 0, 0));
+    const spots = findLaserSpots(warped, msg.laser, msg.mode);
+    warped.delete();
+    H.delete();
+    src.delete();
+    reply({ id: msg.id, type: "laserFrame", spots: spots.slice(0, 3) });
   } catch (e) {
     reply({ id: msg.id, type: "error", message: String(e && e.message ? e.message : e) });
   }
@@ -419,7 +550,7 @@ function handleCapture(msg) {
 
     if (mode !== "hole") {
       // Laser mode: optionally inject a synthetic colored dot, then detect
-      // bright red/green spots directly in the current warped frame.
+      // the selected color in the current warped frame.
       if (isSimulate) {
         const sim = msg.simulate;
         const rgba = sim.color === "green" ? [0, 255, 0, 255] : [255, 0, 0, 255];

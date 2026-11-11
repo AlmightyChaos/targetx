@@ -66,6 +66,10 @@ html, body {
   pointer-events: none;
   touch-action: none;
 }
+.overlay.is-picking-center {
+  pointer-events: auto;
+  cursor: crosshair;
+}
 
 /* ---------- HUD bars ---------- */
 .hud {

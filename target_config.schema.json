@@ -8,7 +8,7 @@
     "detection": {
       "type": "object",
       "properties": {
-        "mode": { "enum": ["hole", "red", "green", "both"], "default": "hole" }
+        "mode": { "enum": ["hole", "red", "green"], "default": "hole" }
       }
     },
     "target": {
